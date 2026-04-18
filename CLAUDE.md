@@ -655,3 +655,54 @@ sendStomp(nonMemberSession, mapOf("roomId" to roomId, "content" to "intruder"))
 Thread.sleep(600) // give it time to arrive if it were going to
 assertThat(roomEventRef.get()).isNull() // correct assertion pattern
 ```
+
+### convertAndSendToUser Requires the Principal to Implement java.security.Principal
+`SimpMessagingTemplate.convertAndSendToUser(name, destination, payload)` routes by matching `name` against every active session's `session.user.name`. The `name` comes from `AbstractAuthenticationToken.getName()`, which delegates to `principal.getName()` only if the principal implements `java.security.Principal`. If it doesn't, it falls back to `principal.toString()` — and `convertAndSendToUser("1", "/queue/presence", event)` silently delivers to nobody. Fix: make your principal class implement the interface:
+
+```kotlin
+// WRONG — toString() is used as name; routing silently fails
+data class ChatPrincipal(val userId: Long, val sessionId: Long)
+
+// RIGHT — getName() = "1" (userId.toString()), matches convertAndSendToUser argument
+data class ChatPrincipal(val userId: Long, val sessionId: Long) : java.security.Principal {
+    override fun getName() = userId.toString()
+}
+```
+
+Use the userId (not username) as the routing key so `convertAndSendToUser(friendId.toString(), ...)` and subscriptions work consistently without a username → session lookup.
+
+### @Scheduled Task Testing — Call the Method Directly, Don't Wait for the Timer
+`@Scheduled(fixedRate = 10_000)` fires every 10 s. Waiting for a real scheduler tick makes tests slow and flaky. Instead, make the scheduled method `public` and call it directly in tests after manipulating state. Pair with a configurable timeout property so you can set a short value in the test profile:
+
+```kotlin
+// Service
+@Value("\${chat.presence.afk-timeout-seconds:60}")
+var afkTimeoutSeconds: Long = 60
+
+@Scheduled(fixedRate = 10_000)
+fun runAfkScan() { /* ... */ }
+
+// application-test.yml
+chat:
+  presence:
+    afk-timeout-seconds: 2
+
+// Test
+Thread.sleep(2500)           // let the short timeout expire
+presenceService.runAfkScan() // call directly — no timer wait
+val event = awaitEvent(ref)
+assertThat(event["status"]).isEqualTo("AFK")
+```
+
+### Native SQL Interface Projection — 500 Error When Column Aliases Don't Match Getter Names
+When a Spring Data native SQL query returns a result that cannot be mapped to an interface projection (column name mismatch, wrong type), Spring throws at deserialization time and the endpoint returns a 500. The symptom in tests is a `MismatchedInputException` (Jackson tried to deserialize a JSON object as a List). Underscore column names like `requester_id` do **not** auto-map to camelCase getters like `getRequesterId()` reliably in native queries. Always use explicit camelCase aliases, or avoid the projection entirely and use two simpler queries:
+
+```kotlin
+// FRAGILE — requester_id column may not map to getRequesterId() in all Spring Data versions
+@Query("SELECT f.requester_id, f.addressee_id ... FROM friendships f ...", nativeQuery = true)
+fun findFriendsWithDetails(...): List<ComplexProjection>
+
+// SAFE — two simple queries, no projection mapping risk
+val friendIds = friendshipRepository.findAcceptedFriendIds(userId)   // returns List<Long>
+val usersById = userRepository.findAllById(friendIds).associateBy { it.id }
+```

@@ -8,3 +8,7 @@ spring:
 
 app:
   uploads-dir: /tmp/chat-test-uploads
+
+chat:
+  presence:
+    afk-timeout-seconds: 2
