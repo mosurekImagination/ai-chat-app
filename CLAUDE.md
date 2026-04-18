@@ -146,6 +146,7 @@ Run `/test-slice` after implementing each slice. If any test fails — **stop, d
 - Within a slice, WIP commits are allowed for large in-progress work: `wip: slice 3 stomp broker setup`
 - Before committing: remove commented-out code, dead imports, and `.bak` files.
 - After each slice commit, run `/build-check` to confirm the tree is clean before starting the next slice.
+- After each slice commit, run `/reflect` to review the slice and update `CLAUDE.md` with any non-obvious gotchas discovered during implementation.
 
 > **Note:** `./gradlew` requires the Gradle wrapper to be initialized. In Slice 1 (project scaffold), run `gradle wrapper` first to generate the `gradlew` script before any other Gradle commands.
 
@@ -585,3 +586,38 @@ When in doubt: search Spring's reference docs or the existing codebase for a pro
 
 ### TestRestTemplate + 401 on POST → HttpRetryException (JDK HttpURLConnection)
 When the server returns a 401 on a POST request, JDK's `HttpURLConnection` tries to retry with authentication. Since the POST body is already streamed it can't retry and throws `HttpRetryException`, surfacing as `ResourceAccessException` in tests. Fix: add `testImplementation("org.apache.httpcomponents.client5:httpclient5")` to `build.gradle.kts`. Spring Boot's test auto-configuration detects Apache HTTP client on the classpath and switches `TestRestTemplate` to use it, which handles 4xx responses cleanly without retrying.
+
+### JPQL JOIN Fails on Unrelated Entities — Use Native SQL With Interface Projections
+JPQL `LEFT JOIN` only works between entities with a mapped association (`@OneToMany`, `@ManyToOne`). Entities that share a FK column but have no JPA relationship mapping (e.g., `Room` and `RoomMember` linked by `roomId`) cannot be joined in JPQL — the query compiles but throws at runtime. Use `nativeQuery = true` with a Spring Data interface projection instead:
+
+```kotlin
+// WRONG — no @ManyToOne between Room and RoomMember, JPQL JOIN fails:
+@Query("SELECT r, COUNT(rm.id) FROM Room r LEFT JOIN RoomMember rm ON rm.roomId = r.id WHERE r.id = :id GROUP BY r.id")
+fun findByIdWithCount(@Param("id") id: Long): Room?
+
+// RIGHT — native SQL + interface projection, single round-trip, no N+1:
+@Query(value = """
+    SELECT r.id, r.name, COUNT(rm.id) AS memberCount
+    FROM rooms r LEFT JOIN room_members rm ON rm.room_id = r.id
+    WHERE r.id = :id GROUP BY r.id
+""", nativeQuery = true)
+fun findByIdWithCount(@Param("id") id: Long): List<RoomWithCountProjection>
+```
+
+Return `List<Projection>` (not `Optional`) for native aggregate queries — call `.firstOrNull()` in the service.
+
+### @AfterEach Cleanup Order Must Match FK Dependency Direction
+When entities share a FK and the constraint is `ON DELETE SET NULL` (not CASCADE), the parent row survives child deletion but the child is orphaned. For test cleanup: always delete the dependent/child table first, then the parent. Wrong order silently leaves rows that bleed into the next test:
+
+```kotlin
+// Schema: rooms.owner_id REFERENCES users ON DELETE SET NULL
+// Deleting users first leaves rooms (owner_id becomes NULL — rooms persist)
+
+@AfterEach
+fun cleanup() {
+    roomRepository.deleteAll()   // children first
+    userRepository.deleteAll()   // parent after
+}
+```
+
+Any table with `ON DELETE SET NULL` pointing at `users` must be cleared before `userRepository.deleteAll()`. Check the Flyway migration for each entity's FK constraint to determine order.
