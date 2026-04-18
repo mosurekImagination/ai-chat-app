@@ -23,9 +23,10 @@ STOMP event schemas (MessageEvent, MemberEvent, RoomEvent, PresenceEvent, Notifi
 **Documentation was also vibe-coded.** When you find a contradiction between documents, use this priority order and fix the lower-priority document before continuing:
 
 1. `requirements.md` — golden truth (what must be built)
-2. `api-definition.yaml` — authoritative for field names, error codes, schemas
-3. `CLAUDE.md` — implementation conventions
-4. `architecture-proposal.md` — context and reasoning; use for gaps, not as override
+2. When other documents contradict each other: investigate the topic, apply industry best practice, then reconcile **all** documents to the chosen approach. Do not blindly favour `api-definition.yaml` over `architecture-proposal.md` or vice versa — both were vibe-coded and can be wrong. The right answer comes from requirements + industry standards.
+3. `CLAUDE.md` — implementation conventions (updated as decisions are made)
+
+**When inconsistencies are found:** Always check `requirements.md` first. Then investigate the contradiction using industry standards. Pick the better option, implement it, and update every document to match — do not leave contradictions in place. Fix them in the same commit as the code change that exposed them.
 
 **Test amendment policy:** Pre-written tests are authoritative for *business behaviour* (what the feature must do). If a test has a *technical bug* (wrong Spring API overload, missing import, incorrect assertion on an implementation detail not driven by requirements), fix the test and all affected places in the same commit — do not work around a bad test with hacky implementation. Always verify against `requirements.md` that the business intent is preserved before amending any test.
 
@@ -272,8 +273,8 @@ Error codes that map to `ConflictException`: `DUPLICATE_EMAIL`, `DUPLICATE_USERN
 - Room deletion is hard delete: disk files first → then `DELETE rooms` → FK cascades remove all child rows.
 
 ### Pagination
-- Only `GET /api/messages/{roomId}` is paginated. Use cursor-based pagination: `?before={messageId}&limit=50` (default 50).
-- Response shape: `{ "messages": [...], "hasMore": boolean }`.
+- Only `GET /api/messages/{roomId}` is paginated. Use cursor-based pagination: `?before={messageId}&limit=50` (default 50, max 100).
+- Response shape: **plain `List<MessageResponse>` JSON array** — no wrapper object. The client infers `hasMore` by checking `length < limit`. (CLAUDE.md previously said `{ messages, hasMore }` — that was wrong; api-definition.yaml is authoritative.)
 - All other list endpoints return full collections (unbounded by pagination — datasets are bounded by membership).
 
 ### Room Name Uniqueness
