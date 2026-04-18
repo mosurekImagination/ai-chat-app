@@ -706,3 +706,36 @@ fun findFriendsWithDetails(...): List<ComplexProjection>
 val friendIds = friendshipRepository.findAcceptedFriendIds(userId)   // returns List<Long>
 val usersById = userRepository.findAllById(friendIds).associateBy { it.id }
 ```
+
+### Making a Column Nullable Is a 5-Layer Cascade
+When you change a DB column from `NOT NULL` to nullable, five things must change together or you get a runtime crash that's hard to trace: (1) Flyway migration, (2) JPA entity field (`var name: String?`), (3) every JPA projection interface getter (`fun getName(): String?`), (4) every DTO field, and (5) every native SQL query that applies a function to that column (e.g., `LOWER(name) LIKE ...` — add `AND name IS NOT NULL` guard). Missing the projection interface is the sneakiest: Spring's proxy returns `null` but the non-nullable Kotlin getter causes a `NullPointerException` deep in Spring's reflection layer with no pointer to your code.
+
+```kotlin
+// WRONG — name is nullable in DB; Spring proxy returns null; Kotlin throws NPE in reflection
+interface RoomWithCountProjection {
+    fun getName(): String   // non-nullable return type on a nullable column
+}
+
+// RIGHT — all four layers updated together
+interface RoomWithCountProjection {
+    fun getName(): String?  // matches DB nullability
+}
+// AND in native SQL query:
+// WHERE r.visibility = 'PUBLIC'
+//   AND r.name IS NOT NULL        ← explicit guard even if visibility already filters DM rooms
+//   AND LOWER(r.name) LIKE ...
+```
+
+### User Ban Enforces DM Read-Only via room_bans, Not user_bans Check
+`MessageService.chat.send` only checks `room_bans` — it does not know about `user_bans`. When `POST /api/users/{id}/ban` runs, it must explicitly insert a `room_bans` row for the DM room (if one exists) to make the DM read-only for the banned user. If you forget this step, the banned user can still send DM messages even though the user ban exists.
+
+```kotlin
+// In FriendService.banUser — explicit room_bans insert required:
+val dmRoomId = roomMemberRepository.findDmRoomId(bannerId, bannedId)
+if (dmRoomId != null && !roomBanRepository.existsByRoomIdAndUserId(dmRoomId, bannedId)) {
+    roomBanRepository.save(RoomBan(roomId = dmRoomId, userId = bannedId, bannedById = bannerId))
+    notificationService.push(bannedId, "DM_BANNED", mapOf("roomId" to dmRoomId))
+}
+// MessageService already checks: roomBanRepository.existsByRoomIdAndUserId(roomId, senderId)
+// No change to MessageService needed — the chain is: user ban → room ban → existing check
+```

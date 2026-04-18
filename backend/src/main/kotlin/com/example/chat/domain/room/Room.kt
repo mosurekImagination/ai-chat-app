@@ -9,8 +9,8 @@ class Room(
     @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
     val id: Long = 0,
 
-    @Column(nullable = false)
-    var name: String,
+    @Column
+    var name: String?,
 
     @Column
     var description: String? = null,

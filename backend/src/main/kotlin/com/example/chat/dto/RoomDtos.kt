@@ -26,7 +26,7 @@ data class UpdateRoomRequest(
 
 data class RoomResponse(
     val id: Long,
-    val name: String,
+    val name: String?,
     val description: String?,
     val visibility: String,
     val ownerId: Long?,

@@ -16,6 +16,7 @@ interface RoomRepository : JpaRepository<Room, Long> {
         FROM rooms r
         LEFT JOIN room_members rm ON rm.room_id = r.id
         WHERE r.visibility = 'PUBLIC'
+          AND r.name IS NOT NULL
           AND LOWER(r.name) LIKE LOWER(CONCAT('%', :q, '%'))
         GROUP BY r.id
         ORDER BY r.name

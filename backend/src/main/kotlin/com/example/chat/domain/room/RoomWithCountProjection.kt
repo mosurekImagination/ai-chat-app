@@ -4,7 +4,7 @@ import java.time.Instant
 
 interface RoomWithCountProjection {
     fun getId(): Long
-    fun getName(): String
+    fun getName(): String?
     fun getDescription(): String?
     fun getVisibility(): String
     fun getOwnerId(): Long?

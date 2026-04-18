@@ -2,8 +2,10 @@ package com.example.chat.api
 
 import com.example.chat.config.ChatPrincipal
 import com.example.chat.domain.room.RoomService
+import com.example.chat.dto.BanUserInRoomRequest
 import com.example.chat.dto.CreateRoomRequest
 import com.example.chat.dto.MemberResponse
+import com.example.chat.dto.RoomBanResponse
 import com.example.chat.dto.RoomResponse
 import com.example.chat.dto.UpdateRoomRequest
 import jakarta.validation.Valid
@@ -59,6 +61,26 @@ class RoomController(private val roomService: RoomService) {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     fun deleteRoom(@PathVariable id: Long, auth: Authentication) =
         roomService.deleteRoom(id, auth.principal<ChatPrincipal>().userId)
+
+    @GetMapping("/{id}/bans")
+    fun listBans(@PathVariable id: Long, auth: Authentication): List<RoomBanResponse> =
+        roomService.listBans(id, auth.principal<ChatPrincipal>().userId)
+
+    @PostMapping("/{id}/bans")
+    @ResponseStatus(HttpStatus.CREATED)
+    fun banUser(
+        @PathVariable id: Long,
+        @RequestBody req: BanUserInRoomRequest,
+        auth: Authentication,
+    ) = roomService.banUserFromRoom(id, req.userId, auth.principal<ChatPrincipal>().userId)
+
+    @DeleteMapping("/{id}/bans/{userId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    fun unbanUser(
+        @PathVariable id: Long,
+        @PathVariable userId: Long,
+        auth: Authentication,
+    ) = roomService.unbanUserFromRoom(id, userId, auth.principal<ChatPrincipal>().userId)
 }
 
 private fun <T> Authentication.principal(): T {

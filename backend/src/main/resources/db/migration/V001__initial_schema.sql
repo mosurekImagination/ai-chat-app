@@ -53,7 +53,7 @@ CREATE TABLE user_bans (
 
 CREATE TABLE rooms (
     id          BIGSERIAL PRIMARY KEY,
-    name        TEXT NOT NULL,
+    name        TEXT,
     description TEXT,
     visibility  TEXT NOT NULL CHECK (visibility IN ('PUBLIC', 'PRIVATE', 'DM')),
     owner_id    BIGINT REFERENCES users(id) ON DELETE SET NULL,

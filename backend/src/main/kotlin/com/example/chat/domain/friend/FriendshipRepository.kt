@@ -25,6 +25,22 @@ interface FriendshipRepository : JpaRepository<Friendship, Long> {
 
     fun existsByRequesterIdAndAddresseeIdAndStatus(requesterId: Long, addresseeId: Long, status: String): Boolean
     fun findByRequesterIdAndAddresseeId(requesterId: Long, addresseeId: Long): Friendship?
+
+    @Query(value = """
+        SELECT * FROM friendships
+        WHERE status = 'PENDING' AND (requester_id = :userId OR addressee_id = :userId)
+        ORDER BY created_at DESC
+    """, nativeQuery = true)
+    fun findPendingForUser(@Param("userId") userId: Long): List<Friendship>
+
+    @Query(value = """
+        SELECT * FROM friendships
+        WHERE status = 'ACCEPTED'
+          AND ((requester_id = :userId1 AND addressee_id = :userId2)
+            OR (requester_id = :userId2 AND addressee_id = :userId1))
+        LIMIT 1
+    """, nativeQuery = true)
+    fun findAcceptedPair(@Param("userId1") userId1: Long, @Param("userId2") userId2: Long): Friendship?
 }
 
 interface FriendWithUsernameProjection {

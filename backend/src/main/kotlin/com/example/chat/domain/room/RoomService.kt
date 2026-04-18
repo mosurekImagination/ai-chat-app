@@ -4,10 +4,14 @@ import com.example.chat.domain.exception.ConflictException
 import com.example.chat.domain.exception.EntityNotFoundException
 import com.example.chat.domain.exception.ForbiddenException
 import com.example.chat.domain.exception.ValidationException
+import com.example.chat.domain.notification.NotificationService
+import com.example.chat.dto.BanUserInRoomRequest
 import com.example.chat.dto.CreateRoomRequest
 import com.example.chat.dto.MemberResponse
+import com.example.chat.dto.RoomBanResponse
 import com.example.chat.dto.RoomResponse
 import com.example.chat.dto.UpdateRoomRequest
+import com.example.chat.dto.UserSummary
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 
@@ -16,6 +20,7 @@ class RoomService(
     private val roomRepository: RoomRepository,
     private val roomMemberRepository: RoomMemberRepository,
     private val roomBanRepository: RoomBanRepository,
+    private val notificationService: NotificationService,
 ) {
 
     @Transactional
@@ -91,6 +96,53 @@ class RoomService(
         val room = roomRepository.findById(roomId).orElseThrow { EntityNotFoundException() }
         if (room.ownerId != userId) throw ForbiddenException("FORBIDDEN")
         roomRepository.deleteById(roomId)
+    }
+
+    fun listBans(roomId: Long, requestingUserId: Long): List<RoomBanResponse> {
+        val room = roomRepository.findById(roomId).orElseThrow { EntityNotFoundException() }
+        val member = roomMemberRepository.findByRoomIdAndUserId(roomId, requestingUserId)
+        if (member == null || member.role !in listOf("ADMIN")) {
+            if (room.ownerId != requestingUserId) throw ForbiddenException("FORBIDDEN")
+        }
+        return roomBanRepository.findBansWithUsername(roomId).map { entry ->
+            RoomBanResponse(
+                userId = entry.getUserId(),
+                username = entry.getUsername(),
+                bannedBy = entry.getBannedById()?.let { id ->
+                    entry.getBannedByUsername()?.let { uname -> UserSummary(id, uname) }
+                },
+                createdAt = entry.getCreatedAt().toString(),
+            )
+        }
+    }
+
+    @Transactional
+    fun banUserFromRoom(roomId: Long, targetUserId: Long, requestingUserId: Long) {
+        val room = roomRepository.findById(roomId).orElseThrow { EntityNotFoundException() }
+        if (room.visibility == "DM") throw ForbiddenException("FORBIDDEN")
+        if (room.ownerId == targetUserId) throw ForbiddenException("CANNOT_BAN_OWNER")
+        val member = roomMemberRepository.findByRoomIdAndUserId(roomId, requestingUserId)
+        if (member == null || member.role !in listOf("ADMIN")) {
+            if (room.ownerId != requestingUserId) throw ForbiddenException("FORBIDDEN")
+        }
+        if (roomBanRepository.existsByRoomIdAndUserId(roomId, targetUserId))
+            throw ConflictException("ALREADY_BANNED")
+
+        roomMemberRepository.deleteByRoomIdAndUserId(roomId, targetUserId)
+        roomBanRepository.save(RoomBan(roomId = roomId, userId = targetUserId, bannedById = requestingUserId))
+        notificationService.push(targetUserId, "ROOM_BANNED", mapOf("roomId" to roomId))
+    }
+
+    @Transactional
+    fun unbanUserFromRoom(roomId: Long, targetUserId: Long, requestingUserId: Long) {
+        val room = roomRepository.findById(roomId).orElseThrow { EntityNotFoundException() }
+        val member = roomMemberRepository.findByRoomIdAndUserId(roomId, requestingUserId)
+        if (member == null || member.role !in listOf("ADMIN")) {
+            if (room.ownerId != requestingUserId) throw ForbiddenException("FORBIDDEN")
+        }
+        val ban = roomBanRepository.findByRoomIdAndUserId(roomId, targetUserId)
+            ?: throw EntityNotFoundException()
+        roomBanRepository.delete(ban)
     }
 
     private fun toResponse(p: RoomWithCountProjection) = RoomResponse(

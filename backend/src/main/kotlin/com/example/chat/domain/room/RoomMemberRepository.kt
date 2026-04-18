@@ -26,4 +26,16 @@ interface RoomMemberRepository : JpaRepository<RoomMember, Long> {
         ORDER BY rm.joined_at
     """, nativeQuery = true)
     fun findMembersWithUsername(@Param("roomId") roomId: Long): List<MemberWithUsernameProjection>
+
+    @Query(value = """
+        SELECT rm.room_id FROM room_members rm
+        JOIN rooms r ON r.id = rm.room_id
+        WHERE rm.user_id = :userId1
+          AND r.visibility = 'DM'
+          AND rm.room_id IN (
+              SELECT room_id FROM room_members WHERE user_id = :userId2
+          )
+        LIMIT 1
+    """, nativeQuery = true)
+    fun findDmRoomId(@Param("userId1") userId1: Long, @Param("userId2") userId2: Long): Long?
 }
