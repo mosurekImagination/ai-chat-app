@@ -4,8 +4,8 @@ Update at every slice commit. Read this file first after any context reset.
 
 | Slice | Status | Commit | Notes |
 |---|---|---|---|
-| 1 | ⬜ | — | scaffold |
-| 2 | ⬜ | — | auth |
+| 1 | ✅ | — | scaffold |
+| 2 | ✅ | — | auth |
 | 3 | ⬜ | — | JWT filter + STOMP auth |
 | 4 | ⬜ | — | room CRUD + membership |
 | 5 | ⬜ | — | room STOMP messaging |

@@ -1,5 +1,6 @@
 package com.example.chat
 
+import com.example.chat.domain.user.UserRepository
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Test
@@ -15,6 +16,9 @@ class Slice2AuthTest : AbstractIntegrationTest() {
 
     @Autowired
     lateinit var restTemplate: TestRestTemplate
+
+    @Autowired
+    lateinit var userRepository: UserRepository
 
     // ---------------------------------------------------------------------------
     // Helpers
@@ -54,9 +58,7 @@ class Slice2AuthTest : AbstractIntegrationTest() {
 
     @AfterEach
     fun cleanup() {
-        // Wipe all users so each test starts clean.
-        // UserRepository will be injected once the agent implements it.
-        // For now tests must be self-contained or the agent must add the injection here.
+        userRepository.deleteAll()
     }
 
     // ---------------------------------------------------------------------------

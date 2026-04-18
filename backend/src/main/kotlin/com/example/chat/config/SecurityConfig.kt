@@ -22,22 +22,30 @@ class SecurityConfig {
     @Bean
     fun filterChain(
         http: HttpSecurity,
-        jwtAuthFilter: JwtAuthFilter,        // TODO: implement in Slice 2
+        jwtAuthFilter: JwtAuthFilter,
     ): SecurityFilterChain {
         http
-            .csrf { it.disable() }           // CSRF covered by SameSite=Lax cookie + STOMP ChannelInterceptor
+            .csrf { it.disable() }
             .sessionManagement { it.sessionCreationPolicy(SessionCreationPolicy.STATELESS) }
             .authorizeHttpRequests { auth ->
                 auth
                     .requestMatchers(
                         "/api/auth/register",
                         "/api/auth/login",
+                        "/api/auth/refresh",
                         "/api/auth/forgot-password",
                         "/api/auth/reset-password",
                         "/actuator/health",
                         "/ws/**",
                     ).permitAll()
                     .anyRequest().authenticated()
+            }
+            .exceptionHandling { ex ->
+                ex.authenticationEntryPoint { _, response, _ ->
+                    response.status = 401
+                    response.contentType = "application/json"
+                    response.writer.write("""{"error":"UNAUTHORIZED"}""")
+                }
             }
             .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter::class.java)
 

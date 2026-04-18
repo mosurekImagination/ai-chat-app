@@ -29,10 +29,16 @@ data class LoginRequest(
     val keepSignedIn: Boolean = false,
 )
 
-// Returned by POST /api/auth/register (201) and POST /api/auth/login (200).
-// accessTokenExpiresAt must be an ISO-8601 UTC instant (e.g. "2026-04-18T10:15:00Z").
 data class AuthResponse(
     val userId: Long,
     val username: String,
     val accessTokenExpiresAt: String,
+)
+
+data class SessionResponse(
+    val id: Long,
+    val browserInfo: String?,
+    val ip: String?,
+    val createdAt: String,
+    val current: Boolean,
 )

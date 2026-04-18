@@ -566,3 +566,6 @@ The pre-written `Slice2AuthTest` contradicts this: it asserts a 201 with an `acc
 
 ### Multi-tab Logout — Intentional Per-Session Invalidation
 `POST /api/auth/logout` invalidates only the session token in the current request's cookie. Other browser tabs remain valid. This is correct per Requirement 2.2.4 ("logout from current browser only; other sessions remain valid"). Do not attempt to push a disconnect event to other tabs on logout — this is by design.
+
+### TestRestTemplate + 401 on POST → HttpRetryException (JDK HttpURLConnection)
+When the server returns a 401 on a POST request, JDK's `HttpURLConnection` tries to retry with authentication. Since the POST body is already streamed it can't retry and throws `HttpRetryException`, surfacing as `ResourceAccessException` in tests. Fix: add `testImplementation("org.apache.httpcomponents.client5:httpclient5")` to `build.gradle.kts`. Spring Boot's test auto-configuration detects Apache HTTP client on the classpath and switches `TestRestTemplate` to use it, which handles 4xx responses cleanly without retrying.
