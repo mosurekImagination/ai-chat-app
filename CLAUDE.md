@@ -146,8 +146,8 @@ Run `/test-slice` after implementing each slice. If any test fails — **stop, d
 - Commit message format: `slice N: <short description>` — e.g., `slice 2: auth — register, login, sessions, password reset`
 - Within a slice, WIP commits are allowed for large in-progress work: `wip: slice 3 stomp broker setup`
 - Before committing: remove commented-out code, dead imports, and `.bak` files.
+- Before committing a completed slice, run `/reflect` to review the slice and update `CLAUDE.md` with any non-obvious gotchas — then commit everything together.
 - After each slice commit, run `/build-check` to confirm the tree is clean before starting the next slice.
-- After each slice commit, run `/reflect` to review the slice and update `CLAUDE.md` with any non-obvious gotchas discovered during implementation.
 
 > **Note:** `./gradlew` requires the Gradle wrapper to be initialized. In Slice 1 (project scaffold), run `gradle wrapper` first to generate the `gradlew` script before any other Gradle commands.
 
@@ -622,3 +622,36 @@ fun cleanup() {
 ```
 
 Any table with `ON DELETE SET NULL` pointing at `users` must be cleared before `userRepository.deleteAll()`. Check the Flyway migration for each entity's FK constraint to determine order.
+
+### StompSession.send() Rejects Kotlin Maps With Nullable Values
+`StompSession.send(StompHeaders, Object)` is a Java method that expects non-nullable `Object`. A Kotlin `mapOf("key" to nullableValue)` infers `Map<String, Any?>` — the nullable `Any?` fails to satisfy `Any` at the call site, causing a compile error. Cast the map to `Any` explicitly:
+
+```kotlin
+// WRONG — compile error: "Type mismatch: inferred type is Any? but Any was expected"
+session.send(headers, mapOf("roomId" to roomId, "parentMessageId" to parentId))
+
+// RIGHT — cast the whole map to Any before passing
+session.send(headers, mapOf("roomId" to roomId, "parentMessageId" to parentId) as Any)
+```
+
+This applies whenever any map value is nullable (e.g., obtained from another `Map<*, *>` lookup).
+
+### STOMP Subscription Registration Is Asynchronous — Sleep Before Sending
+After `session.subscribe(destination, handler)` returns, the subscription frame has been enqueued but may not yet be acknowledged by the broker. If you send a message immediately after subscribing, the event can arrive before the subscription is registered and is silently dropped — no error, no delivery. Always add a brief sleep between subscribing and sending in STOMP tests:
+
+```kotlin
+val ref = subscribeAndCapture(session, "/topic/room.$roomId")
+Thread.sleep(200) // mandatory — subscription registers asynchronously
+session.send(sendHeaders, payload as Any)
+```
+
+200 ms is sufficient for the in-process SimpleBroker. Use an `AtomicReference` + polling loop (`awaitValue`) rather than a `CountDownLatch` when you cannot predict the exact message count.
+
+### @MessageMapping Exceptions Do Not Propagate to Subscribers — Test by Absence
+When a `@MessageMapping` handler throws (e.g., `ForbiddenException` for a non-member), Spring does **not** broadcast an ERROR frame to room subscribers — it silently swallows the exception (or disconnects only the offending session via `StompSubProtocolErrorHandler`). To assert authorization enforcement in STOMP tests, verify that the expected event was **not** delivered rather than catching an error frame:
+
+```kotlin
+sendStomp(nonMemberSession, mapOf("roomId" to roomId, "content" to "intruder"))
+Thread.sleep(600) // give it time to arrive if it were going to
+assertThat(roomEventRef.get()).isNull() // correct assertion pattern
+```

@@ -8,7 +8,7 @@ Update at every slice commit. Read this file first after any context reset.
 | 2 | ✅ | — | auth |
 | 3 | ✅ | — | JWT filter + STOMP auth |
 | 4 | ✅ | — | room CRUD + membership |
-| 5 | ⬜ | — | room STOMP messaging |
+| 5 | ✅ | — | room STOMP messaging |
 | 6 | ⬜ | — | presence |
 | 7 | ⬜ | — | friends + DMs + bans |
 | 8 | ⬜ | — | file upload/download |
