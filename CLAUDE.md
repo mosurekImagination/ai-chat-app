@@ -882,3 +882,57 @@ data class RoomReadCursorId(
 
 ### getMyRooms N+1 — Intentional Deferral
 The `getMyRooms()` implementation uses one query per room to fetch `unreadCount` — an N+1 pattern. The architecture proposal (line 318) recommends a single CTE/window-function query. For this sprint the N+1 is acceptable (bounded dataset), but it should be addressed before any load testing. See `// TODO: optimise — N+1` comment in `RoomService.getMyRooms()`.
+
+### TanStack Start Has No `index.html` or `main.tsx` — Must Create Both for Plain Vite SPA
+TanStack Start generates the HTML entry point server-side via `shellComponent` in `__root.tsx` and the Vite plugin — there is no `index.html` or `src/main.tsx` in the repo. Stripping TanStack Start requires creating both files manually; without them `vite build` fails with "Could not resolve entry module".
+
+```tsx
+// src/main.tsx — required for plain Vite SPA
+import { StrictMode } from "react";
+import { createRoot } from "react-dom/client";
+import { RouterProvider } from "@tanstack/react-router";
+import { getRouter } from "./router";
+import "./styles.css";
+
+const router = getRouter();
+createRoot(document.getElementById("root")!).render(
+  <StrictMode><RouterProvider router={router} /></StrictMode>
+);
+```
+
+### TanStack Start `__root.tsx` Uses SSR-Only APIs — Remove All of Them for SPA
+`createRootRoute` in TanStack Start accepts `head()`, `shellComponent`, and `scripts` options that are resolved server-side. In a plain Vite SPA these fields don't exist on the type and will cause a TypeScript error. Also, the CSS URL import (`import appCss from "../styles.css?url"`) is a TanStack Start convention — in SPA mode, import CSS directly in `main.tsx` instead.
+
+```tsx
+// WRONG — TanStack Start fields, won't compile in plain TanStack Router
+export const Route = createRootRoute({
+  head: () => ({ meta: [...], links: [{ rel: "stylesheet", href: appCss }] }),
+  shellComponent: RootShell,   // SSR-only
+  component: RootComponent,
+});
+
+// RIGHT — plain TanStack Router root
+export const Route = createRootRoute({
+  component: RootComponent,
+  notFoundComponent: NotFoundComponent,
+});
+// CSS imported in main.tsx: import "./styles.css";
+```
+
+### `@lovable.dev/vite-tanstack-config` Bundles Everything — Replace With Explicit Plugins
+The Lovable config package bundles `tanstackStart`, `cloudflare`, TailwindCSS, tsconfig paths, and the TanStack Router codegen plugin as a single opaque export. Replacing it requires manually listing each plugin: `@vitejs/plugin-react`, `@tailwindcss/vite`, `TanStackRouterVite` from `@tanstack/router-plugin/vite`, and `vite-tsconfig-paths`. The `routesDirectory` and `generatedRouteTree` options must be passed explicitly to `TanStackRouterVite`.
+
+```ts
+// RIGHT — explicit plugin list after stripping Lovable config
+import { TanStackRouterVite } from "@tanstack/router-plugin/vite";
+import react from "@vitejs/plugin-react";
+import tailwindcss from "@tailwindcss/vite";
+import tsconfigPaths from "vite-tsconfig-paths";
+
+plugins: [
+  TanStackRouterVite({ routesDirectory: "src/routes", generatedRouteTree: "src/routeTree.gen.ts" }),
+  react(),
+  tailwindcss(),
+  tsconfigPaths(),
+]
+```
