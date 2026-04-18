@@ -1,0 +1,1607 @@
+openapi: "3.0.3"
+
+info:
+  title: Chat Server API
+  version: "1.0.0"
+  description: |
+    REST API for the chat server application (Case Study 04).
+
+    ## Authentication
+    JWT tokens are delivered as **httpOnly cookies** — never in response bodies.
+    - `access_token` cookie: 15-minute lifetime, `Path=/`
+    - `refresh_token` cookie: 7 days (keepSignedIn=false) or 30 days (keepSignedIn=true), `Path=/api/auth/refresh`
+
+    All endpoints except `/api/auth/register`, `/api/auth/login`,
+    `/api/auth/forgot-password`, and `/api/auth/reset-password` require
+    a valid `access_token` cookie. Return **401** when the cookie is missing
+    or the session is not found in the `sessions` table.
+
+    ## Error Envelope
+    Every non-2xx response uses the same shape:
+    ```json
+    { "error": "ERROR_CODE" }
+    ```
+    Error codes are upper-snake-case strings defined per endpoint below.
+
+    ## Field naming
+    All JSON fields use **camelCase**. Kotlin DTOs must match exactly.
+
+    ## Important: no code generation
+    This file is a read-only reference. Do NOT configure openapi-generator.
+    Use field names and types here when writing DTOs and controllers by hand.
+
+servers:
+  - url: http://localhost:3000
+    description: Local Docker Compose (nginx proxy)
+  - url: http://localhost:8080
+    description: Backend direct
+
+# ---------------------------------------------------------------------------
+# Reusable components
+# ---------------------------------------------------------------------------
+components:
+
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: access_token
+
+  schemas:
+
+    # ── Shared primitives ──────────────────────────────────────────────────
+
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+          description: Upper-snake-case error code.
+          example: INVALID_CREDENTIALS
+
+    UserSummary:
+      type: object
+      required: [id, username]
+      properties:
+        id:
+          type: integer
+          format: int64
+          example: 1
+        username:
+          type: string
+          example: alice
+
+    # ── Auth ───────────────────────────────────────────────────────────────
+
+    RegisterRequest:
+      type: object
+      required: [email, username, password]
+      properties:
+        email:
+          type: string
+          format: email
+          example: alice@example.com
+        username:
+          type: string
+          minLength: 2
+          maxLength: 32
+          example: alice
+        password:
+          type: string
+          minLength: 8
+          example: "s3cr3tP@ss"
+
+    LoginRequest:
+      type: object
+      required: [email, password, keepSignedIn]
+      properties:
+        email:
+          type: string
+          format: email
+          example: alice@example.com
+        password:
+          type: string
+          example: "s3cr3tP@ss"
+        keepSignedIn:
+          type: boolean
+          default: false
+          description: true → refresh token valid 30 days; false → 7 days
+
+    LoginResponse:
+      type: object
+      required: [userId, username, accessTokenExpiresAt]
+      properties:
+        userId:
+          type: integer
+          format: int64
+          example: 1
+        username:
+          type: string
+          example: alice
+        accessTokenExpiresAt:
+          type: string
+          format: date-time
+          description: ISO-8601 UTC. React uses this to schedule token refresh.
+          example: "2026-04-18T10:15:00Z"
+
+    SessionResponse:
+      type: object
+      required: [id, browserInfo, ip, createdAt, expiresAt, current]
+      properties:
+        id:
+          type: integer
+          format: int64
+          example: 42
+        browserInfo:
+          type: string
+          nullable: true
+          example: "Chrome 124 / macOS"
+        ip:
+          type: string
+          nullable: true
+          example: "127.0.0.1"
+        createdAt:
+          type: string
+          format: date-time
+        expiresAt:
+          type: string
+          format: date-time
+        current:
+          type: boolean
+          description: true if this is the session used for the current request
+
+    ChangePasswordRequest:
+      type: object
+      required: [currentPassword, newPassword]
+      properties:
+        currentPassword:
+          type: string
+        newPassword:
+          type: string
+          minLength: 8
+
+    ForgotPasswordRequest:
+      type: object
+      required: [email]
+      properties:
+        email:
+          type: string
+          format: email
+          example: alice@example.com
+
+    ResetPasswordRequest:
+      type: object
+      required: [token, newPassword]
+      properties:
+        token:
+          type: string
+          description: Plain-text token from the reset email link.
+        newPassword:
+          type: string
+          minLength: 8
+
+    # ── Rooms ─────────────────────────────────────────────────────────────
+
+    RoomVisibility:
+      type: string
+      enum: [PUBLIC, PRIVATE, DM]
+
+    CreateRoomRequest:
+      type: object
+      required: [name, visibility]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 64
+          example: "general"
+        description:
+          type: string
+          maxLength: 256
+          nullable: true
+        visibility:
+          $ref: "#/components/schemas/RoomVisibility"
+          description: Only PUBLIC or PRIVATE allowed on create; DM is created via POST /api/friends/requests flow.
+
+    UpdateRoomRequest:
+      type: object
+      description: All fields optional; omitted fields are unchanged. DM rooms reject any visibility change with 400.
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 64
+        description:
+          type: string
+          maxLength: 256
+          nullable: true
+        visibility:
+          $ref: "#/components/schemas/RoomVisibility"
+
+    RoomResponse:
+      type: object
+      required: [id, name, visibility, ownerId, memberCount, unreadCount, createdAt]
+      properties:
+        id:
+          type: integer
+          format: int64
+          example: 7
+        name:
+          type: string
+          example: general
+        description:
+          type: string
+          nullable: true
+        visibility:
+          $ref: "#/components/schemas/RoomVisibility"
+        ownerId:
+          type: integer
+          format: int64
+          nullable: true
+          description: null if the owner deleted their account
+        memberCount:
+          type: integer
+          example: 12
+        unreadCount:
+          type: integer
+          example: 3
+        createdAt:
+          type: string
+          format: date-time
+
+    MyRoomResponse:
+      type: object
+      description: Entry in the user's sidebar room list. Includes DMs and private rooms.
+      required: [id, name, visibility, unreadCount]
+      properties:
+        id:
+          type: integer
+          format: int64
+          example: 7
+        name:
+          type: string
+          example: general
+        visibility:
+          $ref: "#/components/schemas/RoomVisibility"
+        unreadCount:
+          type: integer
+          example: 3
+        lastMessageAt:
+          type: string
+          format: date-time
+          nullable: true
+        otherUserId:
+          type: integer
+          format: int64
+          nullable: true
+          description: For DM rooms only — the other participant's userId.
+        otherUsername:
+          type: string
+          nullable: true
+          description: For DM rooms only — the other participant's username.
+
+    MemberRole:
+      type: string
+      enum: [MEMBER, ADMIN]
+
+    MemberResponse:
+      type: object
+      required: [userId, username, role, joinedAt]
+      properties:
+        userId:
+          type: integer
+          format: int64
+          example: 1
+        username:
+          type: string
+          example: alice
+        role:
+          $ref: "#/components/schemas/MemberRole"
+        joinedAt:
+          type: string
+          format: date-time
+
+    UpdateMemberRoleRequest:
+      type: object
+      required: [role]
+      properties:
+        role:
+          $ref: "#/components/schemas/MemberRole"
+
+    InviteRequest:
+      type: object
+      required: [userId]
+      properties:
+        userId:
+          type: integer
+          format: int64
+
+    RoomBanResponse:
+      type: object
+      required: [userId, username, createdAt]
+      properties:
+        userId:
+          type: integer
+          format: int64
+        username:
+          type: string
+        bannedBy:
+          $ref: "#/components/schemas/UserSummary"
+          nullable: true
+          description: null if the banning user has since deleted their account
+        createdAt:
+          type: string
+          format: date-time
+
+    BanRequest:
+      type: object
+      required: [userId]
+      properties:
+        userId:
+          type: integer
+          format: int64
+
+    # ── Messages ──────────────────────────────────────────────────────────
+
+    AttachmentSummary:
+      type: object
+      required: [id, originalFilename, mimeType, sizeBytes]
+      properties:
+        id:
+          type: string
+          format: uuid
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        originalFilename:
+          type: string
+          example: "photo.jpg"
+        mimeType:
+          type: string
+          example: "image/jpeg"
+        sizeBytes:
+          type: integer
+          format: int64
+          example: 204800
+        comment:
+          type: string
+          nullable: true
+          example: "Nice photo"
+
+    ParentMessageSummary:
+      type: object
+      required: [id]
+      properties:
+        id:
+          type: integer
+          format: int64
+        sender:
+          $ref: "#/components/schemas/UserSummary"
+          nullable: true
+        content:
+          type: string
+          nullable: true
+          description: null if the parent message was deleted
+
+    MessageResponse:
+      type: object
+      required: [id, roomId, content, attachments, createdAt, deleted]
+      properties:
+        id:
+          type: integer
+          format: int64
+          example: 42
+        roomId:
+          type: integer
+          format: int64
+          example: 7
+        sender:
+          $ref: "#/components/schemas/UserSummary"
+          nullable: true
+          description: null when the sender's account has been deleted; render as "Deleted User"
+        content:
+          type: string
+          example: "Hello world"
+        parentMessage:
+          $ref: "#/components/schemas/ParentMessageSummary"
+          nullable: true
+        attachments:
+          type: array
+          items:
+            $ref: "#/components/schemas/AttachmentSummary"
+        createdAt:
+          type: string
+          format: date-time
+        editedAt:
+          type: string
+          format: date-time
+          nullable: true
+        deleted:
+          type: boolean
+          description: true = soft-deleted; content is still present in DB but should not be displayed
+
+    # ── Friends ───────────────────────────────────────────────────────────
+
+    PresenceStatus:
+      type: string
+      enum: [ONLINE, AFK, OFFLINE]
+
+    FriendResponse:
+      type: object
+      required: [userId, username, presence]
+      properties:
+        userId:
+          type: integer
+          format: int64
+          example: 2
+        username:
+          type: string
+          example: bob
+        presence:
+          $ref: "#/components/schemas/PresenceStatus"
+
+    FriendRequestResponse:
+      type: object
+      required: [id, requester, addressee, status, createdAt]
+      properties:
+        id:
+          type: integer
+          format: int64
+          example: 99
+        requester:
+          $ref: "#/components/schemas/UserSummary"
+        addressee:
+          $ref: "#/components/schemas/UserSummary"
+        status:
+          type: string
+          enum: [PENDING, ACCEPTED]
+        message:
+          type: string
+          nullable: true
+          description: Optional message text included in the friend request
+        createdAt:
+          type: string
+          format: date-time
+        dmRoomId:
+          type: integer
+          format: int64
+          nullable: true
+          description: >
+            Populated only when status transitions to ACCEPTED.
+            The ID of the DM room created server-side on acceptance.
+            Null for PENDING or REJECTED states.
+          example: 42
+
+    SendFriendRequestRequest:
+      type: object
+      required: [username]
+      properties:
+        username:
+          type: string
+          example: bob
+        message:
+          type: string
+          nullable: true
+          maxLength: 256
+          example: "Hey, we met at the conference!"
+
+    RespondToFriendRequestRequest:
+      type: object
+      required: [action]
+      properties:
+        action:
+          type: string
+          enum: [ACCEPT, REJECT]
+
+    # ── File upload ───────────────────────────────────────────────────────
+
+    UploadResponse:
+      type: object
+      required: [attachmentId, originalFilename, mimeType, sizeBytes]
+      properties:
+        attachmentId:
+          type: string
+          format: uuid
+          description: Use this UUID when sending a message with an attachment.
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        originalFilename:
+          type: string
+          example: "photo.jpg"
+        mimeType:
+          type: string
+          example: "image/jpeg"
+        sizeBytes:
+          type: integer
+          format: int64
+          example: 204800
+
+    # ── STOMP event payloads (not REST — included here as type reference) ─
+
+    StompMessageEvent:
+      type: object
+      description: |
+        Published to `/topic/room.{roomId}` on message create/edit/delete.
+        Kotlin class: MessageEvent
+      required: [type, message]
+      properties:
+        type:
+          type: string
+          enum: [NEW, EDITED, DELETED]
+        message:
+          $ref: "#/components/schemas/MessageResponse"
+
+    StompMemberEvent:
+      type: object
+      description: |
+        Published to `/topic/room.{roomId}` on membership change.
+        Kotlin class: MemberEvent
+      required: [type, userId, roomId]
+      properties:
+        type:
+          type: string
+          enum: [JOINED, LEFT, BANNED]
+        userId:
+          type: integer
+          format: int64
+        roomId:
+          type: integer
+          format: int64
+
+    StompRoomEvent:
+      type: object
+      description: |
+        Published to `/topic/room.{roomId}` before room deletion.
+        Kotlin class: RoomEvent
+      required: [type, roomId]
+      properties:
+        type:
+          type: string
+          enum: [DELETED]
+        roomId:
+          type: integer
+          format: int64
+
+    StompPresenceEvent:
+      type: object
+      description: |
+        Published to `/user/queue/presence` (friend-scoped, not global).
+        Kotlin class: PresenceEvent
+      required: [userId, status]
+      properties:
+        userId:
+          type: integer
+          format: int64
+        status:
+          $ref: "#/components/schemas/PresenceStatus"
+
+    StompNotificationPayloadFriendRequest:
+      type: object
+      required: [requestId, fromUsername, message]
+      properties:
+        requestId:
+          type: integer
+          format: int64
+        fromUsername:
+          type: string
+        message:
+          type: string
+          nullable: true
+
+    StompNotificationPayloadFriendAccepted:
+      type: object
+      required: [friendUserId, friendUsername]
+      properties:
+        friendUserId:
+          type: integer
+          format: int64
+        friendUsername:
+          type: string
+
+    StompNotificationPayloadInvite:
+      type: object
+      required: [roomId, roomName, invitedByUsername]
+      properties:
+        roomId:
+          type: integer
+          format: int64
+        roomName:
+          type: string
+        invitedByUsername:
+          type: string
+
+    StompNotificationPayloadRoomBanned:
+      type: object
+      required: [roomId, roomName]
+      properties:
+        roomId:
+          type: integer
+          format: int64
+        roomName:
+          type: string
+
+    StompNotificationPayloadDmBanned:
+      type: object
+      required: [roomId, byUserId, byUsername]
+      properties:
+        roomId:
+          type: integer
+          format: int64
+        byUserId:
+          type: integer
+          format: int64
+        byUsername:
+          type: string
+
+    StompNotificationEvent:
+      type: object
+      description: |
+        Published to `/user/queue/notifications`.
+        Kotlin class: NotificationEvent
+        `payload` shape depends on `type` — see StompNotificationPayload* schemas.
+      required: [type, payload]
+      properties:
+        type:
+          type: string
+          enum: [FRIEND_REQUEST, FRIEND_ACCEPTED, INVITE, ROOM_BANNED, DM_BANNED]
+        payload:
+          type: object
+          description: Cast to the appropriate payload type based on `type`.
+
+    # ── STOMP inbound frames (client → server) ────────────────────────────
+
+    StompChatSendFrame:
+      type: object
+      description: |
+        Sent to `/app/chat.send`.
+        Kotlin class: ChatSendCommand
+      required: [roomId, content]
+      properties:
+        roomId:
+          type: integer
+          format: int64
+        content:
+          type: string
+          maxLength: 3072
+          description: UTF-8 byte length must not exceed 3072.
+        parentMessageId:
+          type: integer
+          format: int64
+          nullable: true
+        attachmentId:
+          type: string
+          format: uuid
+          nullable: true
+        tempId:
+          type: string
+          nullable: true
+          description: Client-generated correlation ID for optimistic UI updates. Echoed back in MessageEvent.
+
+    StompChatEditFrame:
+      type: object
+      description: Sent to `/app/chat.edit`. Kotlin class: ChatEditCommand
+      required: [messageId, content]
+      properties:
+        messageId:
+          type: integer
+          format: int64
+        content:
+          type: string
+          maxLength: 3072
+
+    StompChatDeleteFrame:
+      type: object
+      description: Sent to `/app/chat.delete`. Kotlin class: ChatDeleteCommand
+      required: [messageId]
+      properties:
+        messageId:
+          type: integer
+          format: int64
+
+    StompPresenceActivityFrame:
+      type: object
+      description: >
+        Sent to `/app/presence.activity` by the React client every 30 seconds
+        while a browser tab is active. Updates the server-side presence map for
+        the sender's STOMP session. No response sent back.
+        Kotlin handler: `@MessageMapping("presence.activity")` in PresenceHandler.
+        No body required — the sender's principal is extracted from the STOMP session.
+
+    StompPresenceAfkFrame:
+      type: object
+      description: >
+        Sent to `/app/presence.afk` when all browser tabs are idle (user stopped
+        interacting). The server immediately sets the user's status to AFK and
+        pushes PresenceEvent to the user's friends.
+        Kotlin handler: `@MessageMapping("presence.afk")` in PresenceHandler.
+        No body required.
+
+# ---------------------------------------------------------------------------
+# Global security — applied to all paths; overridden where not required
+# ---------------------------------------------------------------------------
+security:
+  - cookieAuth: []
+
+# ---------------------------------------------------------------------------
+# Paths
+# ---------------------------------------------------------------------------
+paths:
+
+  # ── Auth ──────────────────────────────────────────────────────────────
+
+  /api/auth/register:
+    post:
+      tags: [auth]
+      summary: Register a new account
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterRequest"
+      responses:
+        "201":
+          description: Account created. Does NOT set cookies — user must log in.
+        "409":
+          description: Email or username already taken.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                duplicateEmail:
+                  value: { error: DUPLICATE_EMAIL }
+                duplicateUsername:
+                  value: { error: DUPLICATE_USERNAME }
+
+  /api/auth/login:
+    post:
+      tags: [auth]
+      summary: Log in — sets access_token and refresh_token cookies
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          description: Login successful. Sets httpOnly cookies.
+          headers:
+            Set-Cookie:
+              description: access_token and refresh_token cookies
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LoginResponse"
+        "401":
+          description: Wrong email or password.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                value: { error: INVALID_CREDENTIALS }
+
+  /api/auth/logout:
+    post:
+      tags: [auth]
+      summary: Invalidate the current session token
+      responses:
+        "204":
+          description: Session invalidated. Clears access_token cookie for this session only.
+        "401":
+          description: Not authenticated.
+
+  /api/auth/refresh:
+    post:
+      tags: [auth]
+      summary: Silently refresh the access token using the refresh_token cookie
+      security:
+        - cookieAuth: []   # refresh_token cookie — Spring Security reads it on this path
+      responses:
+        "200":
+          description: New access_token cookie set. Returns new expiry.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [accessTokenExpiresAt]
+                properties:
+                  accessTokenExpiresAt:
+                    type: string
+                    format: date-time
+        "401":
+          description: Refresh token missing, expired, or session not found.
+
+  /api/auth/change-password:
+    post:
+      tags: [auth]
+      summary: Change password for the authenticated user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChangePasswordRequest"
+      responses:
+        "200":
+          description: Password changed successfully.
+        "400":
+          description: Wrong current password.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                value: { error: WRONG_CURRENT_PASSWORD }
+        "401":
+          description: Not authenticated.
+
+  /api/auth/forgot-password:
+    post:
+      tags: [auth]
+      summary: Request a password reset email
+      security: []
+      description: Always returns 200 regardless of whether the email exists (prevents enumeration).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ForgotPasswordRequest"
+      responses:
+        "200":
+          description: If the email exists, a reset link has been sent to MailHog.
+
+  /api/auth/reset-password:
+    post:
+      tags: [auth]
+      summary: Complete a password reset using the token from the email
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ResetPasswordRequest"
+      responses:
+        "200":
+          description: Password reset successfully.
+        "400":
+          description: Token is invalid, expired, or already used.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                invalid:
+                  value: { error: TOKEN_INVALID }
+                expired:
+                  value: { error: TOKEN_EXPIRED }
+                used:
+                  value: { error: TOKEN_USED }
+
+  /api/auth/sessions:
+    get:
+      tags: [auth]
+      summary: List all active sessions for the current user
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SessionResponse"
+          description: Sessions list, current session has current=true.
+        "401":
+          description: Not authenticated.
+
+  /api/auth/sessions/{id}:
+    delete:
+      tags: [auth]
+      summary: Revoke a specific session
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        "204":
+          description: Session revoked.
+        "403":
+          description: Session belongs to a different user.
+        "404":
+          description: Session not found.
+
+  # ── Rooms ─────────────────────────────────────────────────────────────
+
+  /api/rooms:
+    get:
+      tags: [rooms]
+      summary: Public room catalog with optional name search
+      parameters:
+        - name: q
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Case-insensitive partial name match (ILIKE '%q%'). Omit for all public rooms.
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/RoomResponse"
+          description: List of PUBLIC rooms only. Computed in a single CTE query — no N+1.
+
+  /api/rooms/me:
+    get:
+      tags: [rooms]
+      summary: All rooms the current user belongs to (sidebar list)
+      description: Returns PUBLIC, PRIVATE, and DM rooms. Drives the sidebar. Separate from the public catalog.
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/MyRoomResponse"
+          description: Rooms sorted by lastMessageAt DESC.
+
+  /api/rooms/{id}:
+    patch:
+      tags: [rooms]
+      summary: Update room name, description, or visibility
+      description: Owner only. DM rooms cannot change visibility (returns 400 DM_VISIBILITY_IMMUTABLE).
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateRoomRequest"
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RoomResponse"
+          description: Updated room.
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                dmVisibilityImmutable:
+                  value: { error: DM_VISIBILITY_IMMUTABLE }
+        "403":
+          description: Not the room owner.
+        "404":
+          description: Room not found.
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                value: { error: DUPLICATE_ROOM_NAME }
+
+    delete:
+      tags: [rooms]
+      summary: Delete a room (owner only)
+      description: |
+        Emits RoomEvent{DELETED} to STOMP topic first.
+        Deletes files from disk, then deletes room row (cascades all children).
+        Returns 500 if disk cleanup fails — room row is NOT deleted in that case.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        "204":
+          description: Room deleted.
+        "403":
+          description: Not the room owner.
+        "404":
+          description: Room not found.
+
+  /api/rooms/{id}/members:
+    get:
+      tags: [rooms]
+      summary: List room members
+      description: Requires active membership. Returns 403 for non-members and banned users.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/MemberResponse"
+          description: All members with roles.
+        "403":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                notMember:
+                  value: { error: NOT_MEMBER }
+                roomBanned:
+                  value: { error: ROOM_BANNED }
+
+    post:
+      tags: [rooms]
+      summary: Join a public room or accept a private room invitation
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        "201":
+          description: Joined. Emits MemberEvent{JOINED} to room topic.
+        "403":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                roomBanned:
+                  value: { error: ROOM_BANNED }
+                noInvite:
+                  value: { error: INVITE_REQUIRED }
+        "404":
+          description: Room not found.
+        "409":
+          description: Already a member.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                value: { error: ALREADY_MEMBER }
+
+  /api/rooms/{id}/members/{userId}:
+    delete:
+      tags: [rooms]
+      summary: Remove a member (= ban atomically)
+      description: |
+        Admin or owner only. Atomically removes from room_members and inserts into room_bans in one transaction.
+        Emits MemberEvent{BANNED} to room topic.
+        Sends NotificationEvent{ROOM_BANNED} to the banned user's personal queue.
+        Owner is immune — returns 403 CANNOT_BAN_OWNER if targeted.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        "204":
+          description: Member removed and banned.
+        "403":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                notAdmin:
+                  value: { error: FORBIDDEN }
+                ownerImmune:
+                  value: { error: CANNOT_BAN_OWNER }
+
+    patch:
+      tags: [rooms]
+      summary: Promote or demote a member (owner only)
+      description: Owner only. Owner cannot demote themselves.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateMemberRoleRequest"
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MemberResponse"
+          description: Updated member.
+        "403":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                notOwner:
+                  value: { error: FORBIDDEN }
+                cannotDemoteSelf:
+                  value: { error: CANNOT_DEMOTE_OWNER }
+
+  /api/rooms/{id}/bans:
+    get:
+      tags: [rooms]
+      summary: List room bans (admin/owner only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/RoomBanResponse"
+          description: All bans for the room.
+        "403":
+          description: Not an admin or owner.
+
+    post:
+      tags: [rooms]
+      summary: Explicitly ban a user (admin/owner only)
+      description: Use when banning a user who is not currently a member (e.g., preemptive ban).
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BanRequest"
+      responses:
+        "201":
+          description: Ban created.
+        "403":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                notAdmin:
+                  value: { error: FORBIDDEN }
+                ownerImmune:
+                  value: { error: CANNOT_BAN_OWNER }
+        "409":
+          description: Already banned.
+
+  /api/rooms/{id}/bans/{userId}:
+    delete:
+      tags: [rooms]
+      summary: Unban a user (admin/owner only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        "204":
+          description: Ban removed. User may rejoin.
+        "403":
+          description: Not an admin or owner.
+        "404":
+          description: Ban not found.
+
+  /api/rooms/{id}/invitations:
+    post:
+      tags: [rooms]
+      summary: Invite a user to a private room (admin/owner only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InviteRequest"
+      responses:
+        "201":
+          description: Invitation sent. NotificationEvent{INVITE} delivered to the invited user.
+        "403":
+          description: Not an admin or owner.
+        "404":
+          description: Room or user not found.
+        "409":
+          description: User is already a member.
+
+  # ── Messages ──────────────────────────────────────────────────────────
+
+  /api/messages/{roomId}:
+    get:
+      tags: [messages]
+      summary: Fetch paginated message history
+      description: |
+        Requires active room membership (403 for non-members and room-banned users).
+        Also upserts the room_read_cursors row to MAX(id) for this user+room
+        (marks all fetched messages as read).
+        Returns messages in stable reverse-chronological order: ORDER BY created_at DESC, id DESC.
+      parameters:
+        - name: roomId
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+        - name: before
+          in: query
+          required: false
+          schema:
+            type: integer
+            format: int64
+          description: |
+            Cursor for pagination. Returns messages with id < before.
+            Omit to get the most recent page.
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 50
+            minimum: 1
+            maximum: 100
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/MessageResponse"
+          description: |
+            Up to `limit` messages. First item is the newest. Deleted messages excluded.
+            If fewer than `limit` items returned, the beginning of history has been reached.
+        "403":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                notMember:
+                  value: { error: NOT_MEMBER }
+                roomBanned:
+                  value: { error: ROOM_BANNED }
+        "404":
+          description: Room not found.
+
+  # ── Friends ───────────────────────────────────────────────────────────
+
+  /api/friends:
+    get:
+      tags: [friends]
+      summary: List all accepted friends with their current presence
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/FriendResponse"
+          description: Friends list.
+
+  /api/friends/requests:
+    get:
+      tags: [friends]
+      summary: List pending friend requests (sent and received)
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/FriendRequestResponse"
+          description: All PENDING requests involving the current user.
+
+    post:
+      tags: [friends]
+      summary: Send a friend request
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SendFriendRequestRequest"
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FriendRequestResponse"
+          description: Request created. NotificationEvent{FRIEND_REQUEST} sent to addressee.
+        "404":
+          description: Target username not found.
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                alreadyFriends:
+                  value: { error: ALREADY_FRIENDS }
+                requestAlreadyExists:
+                  value: { error: FRIEND_REQUEST_EXISTS }
+
+  /api/friends/requests/{id}:
+    patch:
+      tags: [friends]
+      summary: Accept or reject a friend request
+      description: |
+        ACCEPT: updates friendships.status to ACCEPTED using idempotent UPDATE WHERE status='PENDING'.
+        Concurrent acceptances are safe — first UPDATE wins; subsequent no-ops.
+        On ACCEPT: emits NotificationEvent{FRIEND_ACCEPTED} to the requester.
+        On REJECT: deletes the friendship row.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RespondToFriendRequestRequest"
+      responses:
+        "200":
+          description: Request accepted or rejected.
+        "403":
+          description: Request is addressed to a different user.
+        "404":
+          description: Request not found.
+
+  /api/friends/{userId}:
+    delete:
+      tags: [friends]
+      summary: Remove a friend
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        "204":
+          description: Friendship deleted.
+        "404":
+          description: Friendship not found.
+
+  # ── Users ─────────────────────────────────────────────────────────────
+
+  /api/users/{id}/ban:
+    post:
+      tags: [users]
+      summary: Ban a user (block all contact)
+      description: |
+        Creates a user_bans row. If the two users are friends, the friendship is terminated.
+        If a DM room exists between them, NotificationEvent{DM_BANNED} is sent to the banned user.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: The userId to ban.
+      responses:
+        "201":
+          description: Ban created.
+        "404":
+          description: User not found.
+        "409":
+          description: Already banned.
+
+    delete:
+      tags: [users]
+      summary: Unban a user
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        "204":
+          description: Ban removed.
+        "404":
+          description: Ban not found.
+
+  /api/users/me:
+    delete:
+      tags: [users]
+      summary: Delete own account
+      description: |
+        Sequence:
+        1. Delete all owned rooms (disk files first, then room rows).
+        2. Delete the users row — cascades sessions, friendships, user_bans,
+           room_members, room_read_cursors. Sets messages.sender_id to NULL.
+        3. Response clears both cookies via Set-Cookie max-age=0.
+      responses:
+        "204":
+          description: Account deleted. Both cookies cleared.
+          headers:
+            Set-Cookie:
+              description: "access_token=; max-age=0 AND refresh_token=; max-age=0"
+              schema:
+                type: string
+        "401":
+          description: Not authenticated.
+
+  # ── Files ─────────────────────────────────────────────────────────────
+
+  /api/files/upload:
+    post:
+      tags: [files]
+      summary: Upload a file attachment
+      description: |
+        Multipart form upload. Tika inspects magic bytes (not Content-Type header).
+
+        **Image uploads** (field name: `file`, Content-Type image/*):
+        Allowlist: image/jpeg, image/png, image/gif, image/webp. Max 3 MB.
+
+        **General file uploads**: Blocklist of executable MIME types.
+        Max 20 MB. Returns 415 for blocked types, 413 for size violations.
+
+        **Paste uploads**: Same endpoint. Set `originalFilename` to `paste-{timestamp}.png`
+        when filename is unavailable from clipboard.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file, roomId]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                roomId:
+                  type: integer
+                  format: int64
+                  description: Room this file is being uploaded for. Used as the storage directory.
+                originalFilename:
+                  type: string
+                  description: Original filename. Used only for Content-Disposition at download time.
+                comment:
+                  type: string
+                  maxLength: 256
+                  nullable: true
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UploadResponse"
+          description: File stored. Use attachmentId when sending a message.
+        "401":
+          description: Not authenticated.
+        "403":
+          description: Not a member of the specified room.
+        "413":
+          description: File exceeds size limit.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                value: { error: FILE_TOO_LARGE }
+        "415":
+          description: MIME type not allowed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                value: { error: UNSUPPORTED_MEDIA_TYPE }
+
+  /api/files/{id}:
+    get:
+      tags: [files]
+      summary: Download a file attachment
+      description: |
+        Checks room membership. For DM rooms, also checks that neither party has banned the other.
+        Returns 404 (not 403) for any inaccessible or non-existent ID to avoid existence leakage.
+        Sets Content-Disposition with RFC 5987 encoded filename.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: File stream.
+          headers:
+            Content-Disposition:
+              schema:
+                type: string
+              example: "attachment; filename*=UTF-8''photo.jpg"
+            Content-Type:
+              schema:
+                type: string
+              example: "image/jpeg"
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "401":
+          description: Not authenticated.
+        "404":
+          description: Attachment not found or not accessible (non-member, banned, or deleted).

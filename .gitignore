@@ -1,0 +1,17 @@
+# Gradle
+backend/.gradle/
+backend/build/
+backend/out/
+
+# Node / Frontend
+frontend/node_modules/
+frontend/dist/
+
+# Runtime data (never commit)
+uploads/
+postgres-data/
+
+# IDE
+.idea/
+*.iml
+.DS_Store

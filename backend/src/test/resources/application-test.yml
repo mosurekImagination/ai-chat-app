@@ -1,0 +1,10 @@
+spring:
+  devtools:
+    restart:
+      enabled: false  # Testcontainers manages its own lifecycle; DevTools restart shifts ports after @DynamicPropertySource captures them
+  mail:
+    host: localhost
+    port: 1025
+
+app:
+  uploads-dir: /tmp/chat-test-uploads

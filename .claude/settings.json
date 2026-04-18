@@ -1,0 +1,50 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(./gradlew *)",
+      "Bash(gradle *)",
+      "Bash(docker compose *)",
+      "Bash(docker ps*)",
+      "Bash(docker logs *)",
+      "Bash(npm install*)",
+      "Bash(npm run *)",
+      "Bash(npx *)",
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(git status*)",
+      "Bash(git diff *)",
+      "Bash(git log *)",
+      "Bash(curl *)",
+      "Bash(nc *)",
+      "Bash(grep *)",
+      "Bash(find *)",
+      "Bash(ls *)",
+      "Bash(mkdir -p *)",
+      "Bash(cat *)",
+      "Bash(cp *)",
+      "Bash(mv *)",
+      "Bash(rm -f *.bak)",
+      "Bash(rm -rf /tmp/chat-*)",
+      "Bash(chmod *)",
+      "Bash(python3 *)",
+      "Bash(java *)",
+      "Bash(which *)",
+      "Bash(echo *)",
+      "Bash(sleep *)",
+      "Bash(pkill -f *)"
+    ]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -c \"\nimport sys, json, subprocess, os\ntry:\n    d = json.load(sys.stdin)\n    f = d.get('file_path', '')\n    if f.endswith('.kt') and 'src/main' in f:\n        backend_dir = f[:f.index('/backend/') + len('/backend/')]\n        r = subprocess.run(['./gradlew', 'compileKotlin', '--quiet'], cwd=backend_dir, capture_output=True, text=True, timeout=120)\n        if r.returncode != 0:\n            print('COMPILE ERROR (fix before continuing):', file=sys.stderr)\n            print(r.stdout or r.stderr, file=sys.stderr)\n            sys.exit(1)\n    elif f.endswith(('.ts', '.tsx')):\n        subprocess.run(['npx', 'prettier', '--write', f], capture_output=True)\nexcept json.JSONDecodeError as e:\n    print(f'Hook input error: {e}', file=sys.stderr)\nexcept subprocess.TimeoutExpired:\n    print('compileKotlin timed out (120s)', file=sys.stderr)\nexcept ValueError:\n    pass  # file_path does not contain /backend/ — not a backend file\nexcept Exception as e:\n    print(f'Hook error: {e}', file=sys.stderr)\n\""
+          }
+        ]
+      }
+    ]
+  }
+}

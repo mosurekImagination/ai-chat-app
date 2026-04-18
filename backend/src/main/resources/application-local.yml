@@ -1,0 +1,9 @@
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5433/chat
+  mail:
+    host: localhost
+    port: 1025
+
+app:
+  uploads-dir: /tmp/chat-local-uploads
