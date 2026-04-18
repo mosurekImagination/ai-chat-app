@@ -13,7 +13,7 @@ Update at every slice commit. Read this file first after any context reset.
 | 7 | ✅ | — | friends + DMs + bans |
 | 8 | ✅ | — | file upload/download |
 | 9 | ✅ | — | password reset + change-password |
-| 10 | ⬜ | — | unread counts + notifications |
+| 10 | ✅ | — | unread counts + notifications |
 | 11 | ⬜ | — | React UI |
 
 Legend: ✅ done · 🔄 in progress · ⬜ not started · ❌ blocked

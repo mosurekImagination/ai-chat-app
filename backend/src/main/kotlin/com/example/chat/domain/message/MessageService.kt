@@ -4,9 +4,12 @@ import com.example.chat.domain.exception.EntityNotFoundException
 import com.example.chat.domain.exception.ForbiddenException
 import com.example.chat.domain.exception.ValidationException
 import com.example.chat.domain.file.FileStorageService
+import com.example.chat.domain.notification.NotificationService
 import com.example.chat.domain.room.RoomBanRepository
 import com.example.chat.domain.room.RoomMemberRepository
+import com.example.chat.domain.room.RoomReadCursorRepository
 import com.example.chat.domain.room.RoomRepository
+import com.example.chat.domain.user.UserRepository
 import com.example.chat.dto.*
 import org.springframework.messaging.simp.SimpMessagingTemplate
 import org.springframework.stereotype.Service
@@ -23,7 +26,11 @@ class MessageService(
     private val roomBanRepository: RoomBanRepository,
     private val messagingTemplate: SimpMessagingTemplate,
     private val fileStorageService: FileStorageService,
+    private val roomReadCursorRepository: RoomReadCursorRepository,
+    private val userRepository: UserRepository,
+    private val notificationService: NotificationService,
 ) {
+    private val mentionRegex = Regex("""@(\w+)""")
 
     @Transactional
     fun sendMessage(cmd: ChatSendCommand, userId: Long) {
@@ -48,6 +55,34 @@ class MessageService(
         val projection = messageRepository.findWithDetails(msg.id)!!
         val response = toResponse(projection, cmd.tempId)
         messagingTemplate.convertAndSend("/topic/room.${cmd.roomId}", MessageEvent("NEW", response))
+
+        // Push mention notifications to @mentioned members
+        val sender = userRepository.findById(userId).orElse(null)
+        mentionRegex.findAll(cmd.content).map { it.groupValues[1] }.distinct().forEach { username ->
+            val mentioned = userRepository.findByUsername(username).orElse(null) ?: return@forEach
+            if (mentioned.id != userId && roomMemberRepository.existsByRoomIdAndUserId(cmd.roomId, mentioned.id)) {
+                notificationService.push(mentioned.id, "MENTION", mapOf(
+                    "roomId" to cmd.roomId,
+                    "messageId" to msg.id,
+                    "fromUserId" to userId,
+                    "fromUsername" to (sender?.username ?: ""),
+                ) as Any)
+            }
+        }
+
+        // Push DM_MESSAGE notification to the other member in DM rooms
+        val room = roomRepository.findById(cmd.roomId).orElse(null)
+        if (room?.visibility == "DM") {
+            roomMemberRepository.findAllByRoomId(cmd.roomId)
+                .filter { it.userId != userId }
+                .forEach { member ->
+                    notificationService.push(member.userId, "DM_MESSAGE", mapOf(
+                        "roomId" to cmd.roomId,
+                        "messageId" to msg.id,
+                        "fromUserId" to userId,
+                    ) as Any)
+                }
+        }
     }
 
     @Transactional
@@ -84,6 +119,7 @@ class MessageService(
         messagingTemplate.convertAndSend("/topic/room.${msg.roomId}", MessageEvent("DELETED", response))
     }
 
+    @Transactional
     fun getHistory(roomId: Long, userId: Long, before: Long?, limit: Int): List<MessageResponse> {
         roomRepository.findById(roomId).orElseThrow { EntityNotFoundException() }
         if (roomBanRepository.existsByRoomIdAndUserId(roomId, userId)) throw ForbiddenException("ROOM_BANNED")
@@ -94,6 +130,9 @@ class MessageService(
             messageRepository.findHistoryBefore(roomId, before, clampedLimit)
         else
             messageRepository.findHistoryLatest(roomId, clampedLimit)
+
+        // Upsert read cursor to mark all current messages as read (per api-definition.yaml spec)
+        if (before == null) roomReadCursorRepository.upsertReadCursor(roomId, userId)
 
         return rows.map { toResponse(it) }
     }

@@ -5,6 +5,7 @@ import com.example.chat.domain.room.RoomService
 import com.example.chat.dto.BanUserInRoomRequest
 import com.example.chat.dto.CreateRoomRequest
 import com.example.chat.dto.MemberResponse
+import com.example.chat.dto.MyRoomResponse
 import com.example.chat.dto.RoomBanResponse
 import com.example.chat.dto.RoomResponse
 import com.example.chat.dto.UpdateRoomRequest
@@ -28,10 +29,8 @@ class RoomController(private val roomService: RoomService) {
     fun listRooms(@RequestParam q: String?): List<RoomResponse> = roomService.listPublicRooms(q)
 
     @GetMapping("/me")
-    fun myRooms(auth: Authentication): List<RoomResponse> {
-        // TODO: Slice 11 — return full MyRoomResponse with DMs, private rooms, lastMessageAt
-        return emptyList()
-    }
+    fun myRooms(auth: Authentication): List<MyRoomResponse> =
+        roomService.getMyRooms(auth.principal<ChatPrincipal>().userId)
 
     @GetMapping("/{id}")
     fun getRoom(@PathVariable id: Long): RoomResponse = roomService.getRoom(id)
@@ -61,6 +60,15 @@ class RoomController(private val roomService: RoomService) {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     fun deleteRoom(@PathVariable id: Long, auth: Authentication) =
         roomService.deleteRoom(id, auth.principal<ChatPrincipal>().userId)
+
+    @GetMapping("/{id}/unread")
+    fun getUnread(@PathVariable id: Long, auth: Authentication): Map<String, Long> =
+        mapOf("unreadCount" to roomService.getUnreadCount(id, auth.principal<ChatPrincipal>().userId))
+
+    @PostMapping("/{id}/read")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    fun markRead(@PathVariable id: Long, auth: Authentication) =
+        roomService.markRead(id, auth.principal<ChatPrincipal>().userId)
 
     @GetMapping("/{id}/bans")
     fun listBans(@PathVariable id: Long, auth: Authentication): List<RoomBanResponse> =

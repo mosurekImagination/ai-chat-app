@@ -41,3 +41,10 @@ data class MemberResponse(
     val role: String,
     val joinedAt: String,
 )
+
+data class MyRoomResponse(
+    val id: Long,
+    val name: String?,
+    val visibility: String,
+    val unreadCount: Int,
+)

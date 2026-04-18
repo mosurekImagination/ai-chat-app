@@ -10,6 +10,7 @@ import com.example.chat.domain.notification.NotificationService
 import com.example.chat.dto.BanUserInRoomRequest
 import com.example.chat.dto.CreateRoomRequest
 import com.example.chat.dto.MemberResponse
+import com.example.chat.dto.MyRoomResponse
 import com.example.chat.dto.RoomBanResponse
 import com.example.chat.dto.RoomResponse
 import com.example.chat.dto.UpdateRoomRequest
@@ -22,6 +23,7 @@ class RoomService(
     private val roomRepository: RoomRepository,
     private val roomMemberRepository: RoomMemberRepository,
     private val roomBanRepository: RoomBanRepository,
+    private val roomReadCursorRepository: RoomReadCursorRepository,
     private val notificationService: NotificationService,
     private val attachmentRepository: AttachmentRepository,
     private val fileStorageService: FileStorageService,
@@ -107,6 +109,34 @@ class RoomService(
         roomRepository.deleteById(roomId)
     }
 
+    fun getUnreadCount(roomId: Long, userId: Long): Long {
+        roomRepository.findById(roomId).orElseThrow { EntityNotFoundException() }
+        if (!roomMemberRepository.existsByRoomIdAndUserId(roomId, userId)) throw ForbiddenException("NOT_MEMBER")
+        return roomReadCursorRepository.countUnread(roomId, userId)
+    }
+
+    @Transactional
+    fun markRead(roomId: Long, userId: Long) {
+        roomRepository.findById(roomId).orElseThrow { EntityNotFoundException() }
+        if (!roomMemberRepository.existsByRoomIdAndUserId(roomId, userId)) throw ForbiddenException("NOT_MEMBER")
+        roomReadCursorRepository.upsertReadCursor(roomId, userId)
+    }
+
+    fun getMyRooms(userId: Long): List<MyRoomResponse> {
+        // TODO: optimise — N+1: one countUnread query per room. Replace with a single CTE/window-function query.
+        val memberRows = roomMemberRepository.findAllByUserId(userId)
+        return memberRows.mapNotNull { member ->
+            val room = roomRepository.findById(member.roomId).orElse(null) ?: return@mapNotNull null
+            val unread = roomReadCursorRepository.countUnread(room.id, userId)
+            MyRoomResponse(
+                id = room.id,
+                name = room.name,
+                visibility = room.visibility,
+                unreadCount = unread.toInt(),
+            )
+        }
+    }
+
     fun listBans(roomId: Long, requestingUserId: Long): List<RoomBanResponse> {
         val room = roomRepository.findById(roomId).orElseThrow { EntityNotFoundException() }
         val member = roomMemberRepository.findByRoomIdAndUserId(roomId, requestingUserId)
@@ -161,7 +191,7 @@ class RoomService(
         visibility = p.getVisibility(),
         ownerId = p.getOwnerId(),
         memberCount = p.getMemberCount().toInt(),
-        unreadCount = 0, // TODO: Slice 10 — compute from room_read_cursors
+        unreadCount = 0, // 0 for public catalog (no userId context)
         createdAt = p.getCreatedAt().toString(),
     )
 
@@ -172,7 +202,7 @@ class RoomService(
         visibility = room.visibility,
         ownerId = room.ownerId,
         memberCount = memberCount,
-        unreadCount = 0, // TODO: Slice 10 — compute from room_read_cursors
+        unreadCount = 0, // 0 for public catalog (no userId context)
         createdAt = room.createdAt.toString(),
     )
 }

@@ -16,6 +16,8 @@ interface RoomMemberRepository : JpaRepository<RoomMember, Long> {
     fun existsByRoomIdAndUserId(roomId: Long, userId: Long): Boolean
     fun deleteByRoomIdAndUserId(roomId: Long, userId: Long)
     fun countByRoomId(roomId: Long): Long
+    fun findAllByRoomId(roomId: Long): List<RoomMember>
+    fun findAllByUserId(userId: Long): List<RoomMember>
 
     // Native SQL JOIN to fetch members with usernames in one query — avoids N+1.
     @Query(value = """

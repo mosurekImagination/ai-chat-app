@@ -828,3 +828,57 @@ val resp = post("/api/auth/reset-password", mapOf("token" to knownRaw, "newPassw
 ```
 
 Duplicate the same SHA-256 helper in the test class (keep it private) so tests never depend on the service's internal method.
+
+### `@Modifying` Native Upsert Requires `@Transactional` on the Calling Method
+Spring Data's `@Modifying @Query(nativeQuery = true)` throws `TransactionRequiredException` if called outside an active transaction. This catches out `@Transactional(readOnly = true)` service methods and non-transactional helpers. Always make the calling service method `@Transactional` (or `@Transactional(readOnly = false)` explicitly):
+
+```kotlin
+// WRONG — TransactionRequiredException at runtime
+fun getHistory(roomId: Long, userId: Long, ...): List<MessageResponse> {
+    roomReadCursorRepository.upsertReadCursor(roomId, userId)  // throws!
+    ...
+}
+
+// RIGHT — @Transactional on the method that calls @Modifying
+@Transactional
+fun getHistory(roomId: Long, userId: Long, ...): List<MessageResponse> {
+    roomReadCursorRepository.upsertReadCursor(roomId, userId)  // works
+    ...
+}
+```
+
+### SQL `id > NULL` Is Always False — Use COALESCE for Missing Read Cursors
+When a user has never read a room, there is no `room_read_cursors` row, so `last_read_message_id` is `NULL`. In SQL, `id > NULL` evaluates to `NULL` (unknown), not `TRUE` — so `COUNT(*) WHERE id > NULL` returns 0 even if there are 100 unread messages. Always wrap the subquery result in `COALESCE(..., 0)`:
+
+```sql
+-- WRONG — returns 0 unread for users with no cursor row (id > NULL = NULL)
+SELECT COUNT(*) FROM messages WHERE id > (
+    SELECT last_read_message_id FROM room_read_cursors WHERE room_id = :r AND user_id = :u
+)
+
+-- RIGHT — COALESCE converts NULL to 0, so all messages count as unread
+SELECT COUNT(*) FROM messages
+WHERE room_id = :roomId AND deleted_at IS NULL
+  AND id > COALESCE(
+      (SELECT last_read_message_id FROM room_read_cursors WHERE room_id = :r AND user_id = :u),
+      0)
+```
+
+### JPA `@EmbeddedId` Requires the Embeddable to Implement `Serializable`
+Composite PKs in JPA must be serializable — Hibernate validates this at startup and throws `MappingException` if the `@Embeddable` class does not implement `java.io.Serializable`. This applies to any entity that uses `@EmbeddedId` or `@IdClass`.
+
+```kotlin
+// WRONG — Hibernate throws MappingException at startup
+@Embeddable
+data class RoomReadCursorId(val roomId: Long = 0, val userId: Long = 0)
+
+// RIGHT — implements Serializable
+@Embeddable
+data class RoomReadCursorId(
+    val roomId: Long = 0,
+    val userId: Long = 0,
+) : java.io.Serializable
+```
+
+### getMyRooms N+1 — Intentional Deferral
+The `getMyRooms()` implementation uses one query per room to fetch `unreadCount` — an N+1 pattern. The architecture proposal (line 318) recommends a single CTE/window-function query. For this sprint the N+1 is acceptable (bounded dataset), but it should be addressed before any load testing. See `// TODO: optimise — N+1` comment in `RoomService.getMyRooms()`.
