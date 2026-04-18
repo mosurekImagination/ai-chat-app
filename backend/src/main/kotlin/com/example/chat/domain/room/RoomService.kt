@@ -122,19 +122,10 @@ class RoomService(
         roomReadCursorRepository.upsertReadCursor(roomId, userId)
     }
 
-    fun getMyRooms(userId: Long): List<MyRoomResponse> {
-        val memberRows = roomMemberRepository.findAllByUserId(userId)
-        return memberRows.mapNotNull { member ->
-            val room = roomRepository.findById(member.roomId).orElse(null) ?: return@mapNotNull null
-            val unread = roomReadCursorRepository.countUnread(room.id, userId)
-            MyRoomResponse(
-                id = room.id,
-                name = room.name,
-                visibility = room.visibility,
-                unreadCount = unread.toInt(),
-            )
+    fun getMyRooms(userId: Long): List<MyRoomResponse> =
+        roomMemberRepository.findMyRoomsWithUnread(userId).map { p ->
+            MyRoomResponse(id = p.getId(), name = p.getName(), visibility = p.getVisibility(), unreadCount = p.getUnreadCount().toInt())
         }
-    }
 
     fun listBans(roomId: Long, requestingUserId: Long): List<RoomBanResponse> {
         val room = roomRepository.findById(roomId).orElseThrow { EntityNotFoundException() }

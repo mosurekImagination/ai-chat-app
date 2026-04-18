@@ -4,6 +4,13 @@ import org.springframework.data.jpa.repository.JpaRepository
 import org.springframework.data.jpa.repository.Query
 import org.springframework.data.repository.query.Param
 
+interface MyRoomProjection {
+    fun getId(): Long
+    fun getName(): String?
+    fun getVisibility(): String
+    fun getUnreadCount(): Long
+}
+
 interface MemberWithUsernameProjection {
     fun getUserId(): Long
     fun getUsername(): String
@@ -18,6 +25,21 @@ interface RoomMemberRepository : JpaRepository<RoomMember, Long> {
     fun countByRoomId(roomId: Long): Long
     fun findAllByRoomId(roomId: Long): List<RoomMember>
     fun findAllByUserId(userId: Long): List<RoomMember>
+
+    @Query(value = """
+        SELECT r.id, r.name, r.visibility,
+               COUNT(m.id) FILTER (
+                   WHERE m.deleted_at IS NULL
+                     AND m.id > COALESCE(rc.last_read_message_id, 0)
+               ) AS unreadCount
+        FROM room_members rm
+        JOIN rooms r ON r.id = rm.room_id
+        LEFT JOIN messages m ON m.room_id = r.id
+        LEFT JOIN room_read_cursors rc ON rc.room_id = r.id AND rc.user_id = :userId
+        WHERE rm.user_id = :userId
+        GROUP BY r.id, r.name, r.visibility, rc.last_read_message_id
+    """, nativeQuery = true)
+    fun findMyRoomsWithUnread(@Param("userId") userId: Long): List<MyRoomProjection>
 
     // Native SQL JOIN to fetch members with usernames in one query — avoids N+1.
     @Query(value = """
