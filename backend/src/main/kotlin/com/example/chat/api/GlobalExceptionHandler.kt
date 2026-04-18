@@ -4,6 +4,7 @@ import com.example.chat.domain.exception.ConflictException
 import com.example.chat.domain.exception.EntityNotFoundException
 import com.example.chat.domain.exception.ForbiddenException
 import com.example.chat.domain.exception.UnauthorizedException
+import com.example.chat.domain.exception.ValidationException
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.MethodArgumentNotValidException
@@ -32,6 +33,10 @@ class GlobalExceptionHandler {
     @ExceptionHandler(ForbiddenException::class)
     fun handleForbidden(e: ForbiddenException): ResponseEntity<Map<String, String>> =
         ResponseEntity.status(HttpStatus.FORBIDDEN).body(mapOf("error" to e.code))
+
+    @ExceptionHandler(ValidationException::class)
+    fun handleValidation2(e: ValidationException): ResponseEntity<Map<String, String>> =
+        ResponseEntity.status(HttpStatus.BAD_REQUEST).body(mapOf("error" to e.code))
 
     @ExceptionHandler(Exception::class)
     fun handleGeneral(e: Exception): ResponseEntity<Map<String, String>> =

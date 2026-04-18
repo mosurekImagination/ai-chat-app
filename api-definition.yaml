@@ -922,6 +922,33 @@ paths:
   # ── Rooms ─────────────────────────────────────────────────────────────
 
   /api/rooms:
+    post:
+      tags: [rooms]
+      summary: Create a new room
+      description: Creator becomes the room owner and is added as a member with ADMIN role. DM visibility is not allowed on creation.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateRoomRequest"
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RoomResponse"
+          description: Room created.
+        "400":
+          description: Invalid request (e.g. DM visibility).
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                value: { error: DUPLICATE_ROOM_NAME }
+
     get:
       tags: [rooms]
       summary: Public room catalog with optional name search
@@ -958,6 +985,26 @@ paths:
           description: Rooms sorted by lastMessageAt DESC.
 
   /api/rooms/{id}:
+    get:
+      tags: [rooms]
+      summary: Get room details by id
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RoomResponse"
+          description: Room details.
+        "404":
+          description: Room not found.
+
     patch:
       tags: [rooms]
       summary: Update room name, description, or visibility
@@ -1021,6 +1068,68 @@ paths:
           description: Room deleted.
         "403":
           description: Not the room owner.
+        "404":
+          description: Room not found.
+
+  /api/rooms/{id}/join:
+    post:
+      tags: [rooms]
+      summary: Join a public room (or accept a private room invitation)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        "201":
+          description: Joined.
+        "403":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                roomBanned:
+                  value: { error: ROOM_BANNED }
+                noInvite:
+                  value: { error: INVITE_REQUIRED }
+        "404":
+          description: Room not found.
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                value: { error: ALREADY_MEMBER }
+
+  /api/rooms/{id}/leave:
+    delete:
+      tags: [rooms]
+      summary: Leave a room
+      description: Owner cannot leave their own room (must delete it instead).
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        "204":
+          description: Left the room.
+        "403":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                ownerCannotLeave:
+                  value: { error: OWNER_CANNOT_LEAVE }
+                notMember:
+                  value: { error: NOT_MEMBER }
         "404":
           description: Room not found.
 

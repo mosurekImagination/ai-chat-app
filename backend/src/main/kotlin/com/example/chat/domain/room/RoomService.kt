@@ -1,0 +1,117 @@
+package com.example.chat.domain.room
+
+import com.example.chat.domain.exception.ConflictException
+import com.example.chat.domain.exception.EntityNotFoundException
+import com.example.chat.domain.exception.ForbiddenException
+import com.example.chat.domain.exception.ValidationException
+import com.example.chat.dto.CreateRoomRequest
+import com.example.chat.dto.MemberResponse
+import com.example.chat.dto.RoomResponse
+import com.example.chat.dto.UpdateRoomRequest
+import org.springframework.stereotype.Service
+import org.springframework.transaction.annotation.Transactional
+
+@Service
+class RoomService(
+    private val roomRepository: RoomRepository,
+    private val roomMemberRepository: RoomMemberRepository,
+    private val roomBanRepository: RoomBanRepository,
+) {
+
+    @Transactional
+    fun createRoom(req: CreateRoomRequest, userId: Long): RoomResponse {
+        if (req.visibility == "DM") throw ValidationException("INVALID_REQUEST")
+        if (roomRepository.existsByNameIgnoreCase(req.name)) throw ConflictException("DUPLICATE_ROOM_NAME")
+
+        val room = roomRepository.save(
+            Room(name = req.name, description = req.description, visibility = req.visibility, ownerId = userId)
+        )
+        roomMemberRepository.save(RoomMember(roomId = room.id, userId = userId, role = "ADMIN"))
+        return toResponse(room, 1)
+    }
+
+    fun listPublicRooms(q: String?): List<RoomResponse> =
+        roomRepository.findPublicRoomsWithCount(q ?: "").map { toResponse(it) }
+
+    fun getRoom(roomId: Long): RoomResponse {
+        val row = roomRepository.findByIdWithCount(roomId).firstOrNull() ?: throw EntityNotFoundException()
+        return toResponse(row)
+    }
+
+    @Transactional
+    fun joinRoom(roomId: Long, userId: Long) {
+        val room = roomRepository.findById(roomId).orElseThrow { EntityNotFoundException() }
+        if (roomBanRepository.existsByRoomIdAndUserId(roomId, userId)) throw ForbiddenException("ROOM_BANNED")
+        if (roomMemberRepository.existsByRoomIdAndUserId(roomId, userId)) throw ConflictException("ALREADY_MEMBER")
+        if (room.visibility == "PRIVATE") throw ForbiddenException("INVITE_REQUIRED")
+        roomMemberRepository.save(RoomMember(roomId = roomId, userId = userId, role = "MEMBER"))
+    }
+
+    @Transactional
+    fun leaveRoom(roomId: Long, userId: Long) {
+        val room = roomRepository.findById(roomId).orElseThrow { EntityNotFoundException() }
+        if (room.ownerId == userId) throw ForbiddenException("OWNER_CANNOT_LEAVE")
+        if (!roomMemberRepository.existsByRoomIdAndUserId(roomId, userId)) throw ForbiddenException("NOT_MEMBER")
+        roomMemberRepository.deleteByRoomIdAndUserId(roomId, userId)
+    }
+
+    fun listMembers(roomId: Long, userId: Long): List<MemberResponse> {
+        roomRepository.findById(roomId).orElseThrow { EntityNotFoundException() }
+        if (roomBanRepository.existsByRoomIdAndUserId(roomId, userId)) throw ForbiddenException("ROOM_BANNED")
+        if (!roomMemberRepository.existsByRoomIdAndUserId(roomId, userId)) throw ForbiddenException("NOT_MEMBER")
+        return roomMemberRepository.findMembersWithUsername(roomId).map { m ->
+            MemberResponse(
+                userId = m.getUserId(),
+                username = m.getUsername(),
+                role = m.getRole(),
+                joinedAt = m.getJoinedAt().toString(),
+            )
+        }
+    }
+
+    @Transactional
+    fun updateRoom(roomId: Long, req: UpdateRoomRequest, userId: Long): RoomResponse {
+        val room = roomRepository.findById(roomId).orElseThrow { EntityNotFoundException() }
+        if (room.ownerId != userId) throw ForbiddenException("FORBIDDEN")
+        if (room.visibility == "DM" && req.visibility != null) throw ValidationException("DM_VISIBILITY_IMMUTABLE")
+        req.name?.let {
+            if (!it.equals(room.name, ignoreCase = true) && roomRepository.existsByNameIgnoreCase(it))
+                throw ConflictException("DUPLICATE_ROOM_NAME")
+            room.name = it
+        }
+        req.description?.let { room.description = it }
+        req.visibility?.let { room.visibility = it }
+        val saved = roomRepository.save(room)
+        val count = roomMemberRepository.countByRoomId(roomId)
+        return toResponse(saved, count.toInt())
+    }
+
+    @Transactional
+    fun deleteRoom(roomId: Long, userId: Long) {
+        val room = roomRepository.findById(roomId).orElseThrow { EntityNotFoundException() }
+        if (room.ownerId != userId) throw ForbiddenException("FORBIDDEN")
+        roomRepository.deleteById(roomId)
+    }
+
+    private fun toResponse(p: RoomWithCountProjection) = RoomResponse(
+        id = p.getId(),
+        name = p.getName(),
+        description = p.getDescription(),
+        visibility = p.getVisibility(),
+        ownerId = p.getOwnerId(),
+        memberCount = p.getMemberCount().toInt(),
+        unreadCount = 0, // TODO: Slice 10 — compute from room_read_cursors
+        createdAt = p.getCreatedAt().toString(),
+    )
+
+    private fun toResponse(room: Room, memberCount: Int) = RoomResponse(
+        id = room.id,
+        name = room.name,
+        description = room.description,
+        visibility = room.visibility,
+        ownerId = room.ownerId,
+        memberCount = memberCount,
+        unreadCount = 0, // TODO: Slice 10 — compute from room_read_cursors
+        createdAt = room.createdAt.toString(),
+    )
+}
