@@ -6,7 +6,7 @@ Update at every slice commit. Read this file first after any context reset.
 |---|---|---|---|
 | 1 | ✅ | — | scaffold |
 | 2 | ✅ | — | auth |
-| 3 | ⬜ | — | JWT filter + STOMP auth |
+| 3 | ✅ | — | JWT filter + STOMP auth |
 | 4 | ⬜ | — | room CRUD + membership |
 | 5 | ⬜ | — | room STOMP messaging |
 | 6 | ⬜ | — | presence |

@@ -57,11 +57,13 @@ abstract class AbstractIntegrationTest {
         val client = WebSocketStompClient(SockJsClient(transports)).apply {
             messageConverter = MappingJackson2MessageConverter()
         }
-        val headers = StompHeaders().apply { add("Cookie", "access_token=$authCookie") }
+        val connectHeaders = StompHeaders().apply { add("Cookie", "access_token=$authCookie") }
         val latch = CountDownLatch(1)
         val sessionRef = AtomicReference<StompSession>()
         val errorRef = AtomicReference<String>()
-        client.connectAsync("ws://localhost:$port/ws", object : StompSessionHandlerAdapter() {
+        // Use connectAsync(url, WebSocketHttpHeaders=null, StompHeaders, handler) so connectHeaders
+        // are sent as STOMP CONNECT frame native headers (not silently dropped as URI vars).
+        client.connectAsync("ws://localhost:$port/ws", null, connectHeaders, object : StompSessionHandlerAdapter() {
             override fun afterConnected(session: StompSession, connectedHeaders: StompHeaders) {
                 sessionRef.set(session)
                 latch.countDown()
@@ -80,7 +82,7 @@ abstract class AbstractIntegrationTest {
                 errorRef.set(exception.message ?: "stomp exception")
                 latch.countDown()
             }
-        }, headers)
+        })
         check(latch.await(10, TimeUnit.SECONDS)) { "STOMP connect timeout after 10s" }
         errorRef.get()?.let { error("STOMP connect failed: $it") }
         return sessionRef.get()!!

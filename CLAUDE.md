@@ -27,6 +27,8 @@ STOMP event schemas (MessageEvent, MemberEvent, RoomEvent, PresenceEvent, Notifi
 3. `CLAUDE.md` — implementation conventions
 4. `architecture-proposal.md` — context and reasoning; use for gaps, not as override
 
+**Test amendment policy:** Pre-written tests are authoritative for *business behaviour* (what the feature must do). If a test has a *technical bug* (wrong Spring API overload, missing import, incorrect assertion on an implementation detail not driven by requirements), fix the test and all affected places in the same commit — do not work around a bad test with hacky implementation. Always verify against `requirements.md` that the business intent is preserved before amending any test.
+
 Don't stop for clarification. Make the reasonable call, fix the inconsistency in the document, and continue. If you discover a gap (something not specified anywhere), add it to CLAUDE.md under **Discovered Gotchas** immediately — not after the slice, right now.
 
 ---
@@ -566,6 +568,18 @@ The pre-written `Slice2AuthTest` contradicts this: it asserts a 201 with an `acc
 
 ### Multi-tab Logout — Intentional Per-Session Invalidation
 `POST /api/auth/logout` invalidates only the session token in the current request's cookie. Other browser tabs remain valid. This is correct per Requirement 2.2.4 ("logout from current browser only; other sessions remain valid"). Do not attempt to push a disconnect event to other tabs on logout — this is by design.
+
+### Follow Industry Standards — Don't Reinvent
+
+Before implementing any cross-cutting concern (auth, caching, messaging, pagination, file handling, etc.), check whether Spring Boot / the existing stack already has a first-class solution. Use that solution. Do not invent a custom mechanism when a standard one exists.
+
+Examples already in this project:
+- **STOMP + JWT auth**: Spring's documented two-path pattern — `HandshakeInterceptor` captures the cookie from the HTTP upgrade (browser path); `JwtChannelInterceptor` reads STOMP native headers as fallback (test/programmatic path). Both paths set the principal via `UsernamePasswordAuthenticationToken`.
+- **Spring API misuse**: `connectAsync(url, handler, stompHeaders)` silently treats `StompHeaders` as a URI var (wrong overload). Correct form: `connectAsync(url, null, stompHeaders, handler)` — maps to `(String, WebSocketHttpHeaders=null, StompHeaders, StompSessionHandler)` and actually sends STOMP CONNECT headers.
+- **Validation**: use Spring's `@Valid` + `@NotBlank`/`@Size` — not hand-rolled null checks.
+- **Error handling**: single `@ControllerAdvice` — not per-controller try/catch.
+
+When in doubt: search Spring's reference docs or the existing codebase for a proven pattern before writing custom code.
 
 ### TestRestTemplate + 401 on POST → HttpRetryException (JDK HttpURLConnection)
 When the server returns a 401 on a POST request, JDK's `HttpURLConnection` tries to retry with authentication. Since the POST body is already streamed it can't retry and throws `HttpRetryException`, surfacing as `ResourceAccessException` in tests. Fix: add `testImplementation("org.apache.httpcomponents.client5:httpclient5")` to `build.gradle.kts`. Spring Boot's test auto-configuration detects Apache HTTP client on the classpath and switches `TestRestTemplate` to use it, which handles 4xx responses cleanly without retrying.

@@ -1,6 +1,7 @@
 package com.example.chat.config
 
 import com.example.chat.ws.JwtChannelInterceptor
+import com.example.chat.ws.JwtHandshakeInterceptor
 import org.springframework.context.annotation.Configuration
 import org.springframework.messaging.simp.config.ChannelRegistration
 import org.springframework.messaging.simp.config.MessageBrokerRegistry
@@ -12,11 +13,13 @@ import org.springframework.web.socket.config.annotation.WebSocketMessageBrokerCo
 @EnableWebSocketMessageBroker
 class WebSocketConfig(
     private val jwtChannelInterceptor: JwtChannelInterceptor,
+    private val jwtHandshakeInterceptor: JwtHandshakeInterceptor,
 ) : WebSocketMessageBrokerConfigurer {
 
     override fun registerStompEndpoints(registry: StompEndpointRegistry) {
         registry.addEndpoint("/ws")
             .setAllowedOriginPatterns("*")
+            .addInterceptors(jwtHandshakeInterceptor)
             .withSockJS()
     }
 

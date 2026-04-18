@@ -1,6 +1,8 @@
 package com.example.chat
 
+import com.example.chat.domain.user.UserRepository
 import org.assertj.core.api.Assertions.assertThat
+import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.web.client.TestRestTemplate
@@ -14,6 +16,14 @@ class Slice3JwtStompTest : AbstractIntegrationTest() {
 
     @Autowired
     lateinit var restTemplate: TestRestTemplate
+
+    @Autowired
+    lateinit var userRepository: UserRepository
+
+    @AfterEach
+    fun cleanup() {
+        userRepository.deleteAll()
+    }
 
     private fun registerAndGetCookie(): String {
         val body = mapOf(
