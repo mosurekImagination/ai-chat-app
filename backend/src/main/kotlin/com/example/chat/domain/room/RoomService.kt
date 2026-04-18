@@ -123,7 +123,6 @@ class RoomService(
     }
 
     fun getMyRooms(userId: Long): List<MyRoomResponse> {
-        // TODO: optimise — N+1: one countUnread query per room. Replace with a single CTE/window-function query.
         val memberRows = roomMemberRepository.findAllByUserId(userId)
         return memberRows.mapNotNull { member ->
             val room = roomRepository.findById(member.roomId).orElse(null) ?: return@mapNotNull null
