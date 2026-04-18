@@ -4,11 +4,15 @@ import com.example.chat.config.JwtProperties
 import com.example.chat.config.JwtUtil
 import com.example.chat.domain.exception.ConflictException
 import com.example.chat.domain.exception.UnauthorizedException
+import com.example.chat.domain.exception.ValidationException
 import com.example.chat.dto.AuthResponse
 import com.example.chat.dto.SessionResponse
 import jakarta.servlet.http.Cookie
 import jakarta.servlet.http.HttpServletRequest
 import jakarta.servlet.http.HttpServletResponse
+import org.slf4j.LoggerFactory
+import org.springframework.mail.SimpleMailMessage
+import org.springframework.mail.javamail.JavaMailSender
 import org.springframework.security.crypto.password.PasswordEncoder
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
@@ -21,11 +25,14 @@ import java.util.Base64
 class UserService(
     private val userRepository: UserRepository,
     private val sessionRepository: SessionRepository,
+    private val passwordResetTokenRepository: PasswordResetTokenRepository,
     private val passwordEncoder: PasswordEncoder,
     private val jwtUtil: JwtUtil,
     private val jwtProperties: JwtProperties,
+    private val mailSender: JavaMailSender,
 ) {
     private val secureRandom = SecureRandom()
+    private val log = LoggerFactory.getLogger(UserService::class.java)
 
     @Transactional
     fun register(
@@ -83,6 +90,56 @@ class UserService(
 
     fun me(userId: Long): User = userRepository.findById(userId)
         .orElseThrow { UnauthorizedException("INVALID_CREDENTIALS") }
+
+    @Transactional
+    fun forgotPassword(email: String) {
+        val user = userRepository.findByEmail(email).orElse(null)
+        if (user == null) {
+            log.info("Password reset requested for unknown email: $email")
+            return  // Always return 200 — no enumeration
+        }
+        val rawToken = generateRawToken()
+        passwordResetTokenRepository.save(
+            PasswordResetToken(
+                userId = user.id,
+                tokenHash = sha256(rawToken),
+                expiresAt = Instant.now().plusSeconds(15 * 60),
+            )
+        )
+        try {
+            val msg = SimpleMailMessage().apply {
+                setTo(user.email)
+                subject = "Password reset"
+                text = "Reset your password: http://localhost:3000/reset-password?token=$rawToken"
+            }
+            mailSender.send(msg)
+        } catch (e: Exception) {
+            log.error("Failed to send password reset email to ${user.email}", e)
+        }
+    }
+
+    @Transactional
+    fun resetPassword(rawToken: String, newPassword: String) {
+        val token = passwordResetTokenRepository.findByTokenHash(sha256(rawToken))
+        if (token == null || token.expiresAt.isBefore(Instant.now()) || token.usedAt != null) {
+            log.info("Password reset attempted with invalid/expired/used token")
+            return  // Always return 200 — no enumeration
+        }
+        token.usedAt = Instant.now()
+        passwordResetTokenRepository.save(token)
+        val user = userRepository.findById(token.userId).orElse(null) ?: return
+        user.passwordHash = passwordEncoder.encode(newPassword)
+        userRepository.save(user)
+    }
+
+    @Transactional
+    fun changePassword(userId: Long, currentPassword: String, newPassword: String) {
+        val user = userRepository.findById(userId).orElseThrow { UnauthorizedException("INVALID_CREDENTIALS") }
+        if (!passwordEncoder.matches(currentPassword, user.passwordHash))
+            throw ValidationException("WRONG_CURRENT_PASSWORD")
+        user.passwordHash = passwordEncoder.encode(newPassword)
+        userRepository.save(user)
+    }
 
     fun sessions(userId: Long, currentSessionId: Long): List<SessionResponse> =
         sessionRepository.findAllByUserId(userId).map { s ->

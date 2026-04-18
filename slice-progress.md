@@ -11,8 +11,8 @@ Update at every slice commit. Read this file first after any context reset.
 | 5 | ✅ | — | room STOMP messaging |
 | 6 | ✅ | — | presence |
 | 7 | ✅ | — | friends + DMs + bans |
-| 8 | ⬜ | — | file upload/download |
-| 9 | ⬜ | — | password reset |
+| 8 | ✅ | — | file upload/download |
+| 9 | ✅ | — | password reset + change-password |
 | 10 | ⬜ | — | unread counts + notifications |
 | 11 | ⬜ | — | React UI |
 

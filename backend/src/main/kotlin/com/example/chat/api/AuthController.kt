@@ -4,8 +4,11 @@ import com.example.chat.config.ChatPrincipal
 import com.example.chat.domain.exception.UnauthorizedException
 import com.example.chat.domain.user.UserService
 import com.example.chat.dto.AuthResponse
+import com.example.chat.dto.ChangePasswordRequest
+import com.example.chat.dto.ForgotPasswordRequest
 import com.example.chat.dto.LoginRequest
 import com.example.chat.dto.RegisterRequest
+import com.example.chat.dto.ResetPasswordRequest
 import com.example.chat.dto.SessionResponse
 import jakarta.servlet.http.HttpServletRequest
 import jakarta.servlet.http.HttpServletResponse
@@ -58,5 +61,21 @@ class AuthController(private val userService: UserService) {
     fun sessions(authentication: Authentication): List<SessionResponse> {
         val principal = authentication.principal as ChatPrincipal
         return userService.sessions(principal.userId, principal.sessionId)
+    }
+
+    @PostMapping("/forgot-password")
+    fun forgotPassword(@Valid @RequestBody req: ForgotPasswordRequest) {
+        userService.forgotPassword(req.email)
+    }
+
+    @PostMapping("/reset-password")
+    fun resetPassword(@Valid @RequestBody req: ResetPasswordRequest) {
+        userService.resetPassword(req.token, req.newPassword)
+    }
+
+    @PostMapping("/change-password")
+    fun changePassword(@Valid @RequestBody req: ChangePasswordRequest, authentication: Authentication) {
+        val principal = authentication.principal as ChatPrincipal
+        userService.changePassword(principal.userId, req.currentPassword, req.newPassword)
     }
 }

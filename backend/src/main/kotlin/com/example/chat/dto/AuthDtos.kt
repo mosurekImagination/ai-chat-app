@@ -42,3 +42,18 @@ data class SessionResponse(
     val createdAt: String,
     val current: Boolean,
 )
+
+data class ForgotPasswordRequest(
+    @field:NotBlank @field:Email
+    val email: String,
+)
+
+data class ResetPasswordRequest(
+    @field:NotBlank val token: String,
+    @field:NotBlank @field:Size(min = 8) val newPassword: String,
+)
+
+data class ChangePasswordRequest(
+    @field:NotBlank val currentPassword: String,
+    @field:NotBlank @field:Size(min = 8) val newPassword: String,
+)
