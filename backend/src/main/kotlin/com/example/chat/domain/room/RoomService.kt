@@ -4,6 +4,8 @@ import com.example.chat.domain.exception.ConflictException
 import com.example.chat.domain.exception.EntityNotFoundException
 import com.example.chat.domain.exception.ForbiddenException
 import com.example.chat.domain.exception.ValidationException
+import com.example.chat.domain.file.FileStorageService
+import com.example.chat.domain.message.AttachmentRepository
 import com.example.chat.domain.notification.NotificationService
 import com.example.chat.dto.BanUserInRoomRequest
 import com.example.chat.dto.CreateRoomRequest
@@ -21,6 +23,8 @@ class RoomService(
     private val roomMemberRepository: RoomMemberRepository,
     private val roomBanRepository: RoomBanRepository,
     private val notificationService: NotificationService,
+    private val attachmentRepository: AttachmentRepository,
+    private val fileStorageService: FileStorageService,
 ) {
 
     @Transactional
@@ -95,6 +99,11 @@ class RoomService(
     fun deleteRoom(roomId: Long, userId: Long) {
         val room = roomRepository.findById(roomId).orElseThrow { EntityNotFoundException() }
         if (room.ownerId != userId) throw ForbiddenException("FORBIDDEN")
+        // Delete files from disk before deleting room row (per Discovered Gotchas: disk first, DB second)
+        attachmentRepository.findAllStoragePathsByRoomId(roomId).forEach { path ->
+            fileStorageService.delete(path)
+        }
+        fileStorageService.deleteRoom(roomId)
         roomRepository.deleteById(roomId)
     }
 

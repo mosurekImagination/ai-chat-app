@@ -3,6 +3,7 @@ package com.example.chat.domain.message
 import com.example.chat.domain.exception.EntityNotFoundException
 import com.example.chat.domain.exception.ForbiddenException
 import com.example.chat.domain.exception.ValidationException
+import com.example.chat.domain.file.FileStorageService
 import com.example.chat.domain.room.RoomBanRepository
 import com.example.chat.domain.room.RoomMemberRepository
 import com.example.chat.domain.room.RoomRepository
@@ -11,6 +12,7 @@ import org.springframework.messaging.simp.SimpMessagingTemplate
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import java.time.Instant
+import java.util.UUID
 
 @Service
 class MessageService(
@@ -20,6 +22,7 @@ class MessageService(
     private val roomMemberRepository: RoomMemberRepository,
     private val roomBanRepository: RoomBanRepository,
     private val messagingTemplate: SimpMessagingTemplate,
+    private val fileStorageService: FileStorageService,
 ) {
 
     @Transactional
@@ -32,6 +35,15 @@ class MessageService(
         val msg = messageRepository.save(
             Message(roomId = cmd.roomId, senderId = userId, content = cmd.content, parentMessageId = cmd.parentMessageId)
         )
+
+        // Link a pre-uploaded attachment to this message
+        if (cmd.attachmentId != null) {
+            val att = attachmentRepository.findByIdAndMessageIdIsNull(cmd.attachmentId)
+            if (att != null) {
+                att.messageId = msg.id
+                attachmentRepository.save(att)
+            }
+        }
 
         val projection = messageRepository.findWithDetails(msg.id)!!
         val response = toResponse(projection, cmd.tempId)
@@ -60,6 +72,12 @@ class MessageService(
         if (msg.deletedAt != null) return
         msg.deletedAt = Instant.now()
         messageRepository.save(msg)
+
+        // Delete attachment from disk and DB when message is deleted
+        attachmentRepository.findAllByMessageId(msg.id).forEach { att ->
+            fileStorageService.delete(att.storagePath)
+            attachmentRepository.delete(att)
+        }
 
         val projection = messageRepository.findWithDetails(msg.id)!!
         val response = toResponse(projection)

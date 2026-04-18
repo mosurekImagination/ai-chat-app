@@ -739,3 +739,44 @@ if (dmRoomId != null && !roomBanRepository.existsByRoomIdAndUserId(dmRoomId, ban
 // MessageService already checks: roomBanRepository.existsByRoomIdAndUserId(roomId, senderId)
 // No change to MessageService needed — the chain is: user ban → room ban → existing check
 ```
+
+### Multipart Upload in TestRestTemplate — ByteArrayResource Must Override `getFilename()`
+When testing multipart uploads with `TestRestTemplate`, adding a plain `ByteArrayResource` to `LinkedMultiValueMap` produces a part with no `filename` in the `Content-Disposition` header — Spring's `MultipartFile.originalFilename` is then null and some controllers or validation may fail silently. You must override `getFilename()`. Also override `contentLength()` to avoid Spring having to buffer the stream just to compute it.
+
+```kotlin
+// WRONG — no filename in part header; MultipartFile.originalFilename is null in the controller
+body.add("file", ByteArrayResource(content))
+
+// RIGHT — override both methods
+body.add("file", object : ByteArrayResource(content) {
+    override fun getFilename() = "photo.jpg"
+    override fun contentLength() = content.size.toLong()
+})
+```
+
+### `MaxUploadSizeExceededException` Is Thrown Before the Controller — Handle It in `@ControllerAdvice`
+When a multipart upload exceeds `spring.servlet.multipart.max-file-size`, Spring rejects the request at the servlet filter layer and throws `MaxUploadSizeExceededException` before the controller is invoked. You cannot catch it in the controller. Without a `@ControllerAdvice` handler it returns 500. The handler must be in `GlobalExceptionHandler`:
+
+```kotlin
+// In GlobalExceptionHandler — required alongside FileSizeLimitException handler:
+@ExceptionHandler(org.springframework.web.multipart.MaxUploadSizeExceededException::class)
+fun handleMultipartSize(e: MaxUploadSizeExceededException): ResponseEntity<Map<String, String>> =
+    ResponseEntity.status(HttpStatus.PAYLOAD_TOO_LARGE).body(mapOf("error" to "FILE_TOO_LARGE"))
+```
+
+Application-level size checks (e.g., image 3 MB limit) throw a domain exception that IS caught normally; only the servlet-level limit (20 MB in `application.yml`) takes this path.
+
+### Upload-First Flow Requires Nullable FK on the Attachment Table
+Any "upload a resource, then reference it later" flow means the linking FK must be nullable at upload time. If `attachments.message_id` is `NOT NULL`, the upload endpoint cannot insert the row until a message is created — breaking the intended two-step flow. Make the FK nullable in V001 and set it in the second step:
+
+```kotlin
+// Attachment inserted at upload time with message_id = null
+attachmentRepository.save(Attachment(id = uuid, messageId = null, ...))
+
+// Linked when message is created via chat.send
+val att = attachmentRepository.findByIdAndMessageIdIsNull(cmd.attachmentId)
+att.messageId = msg.id
+attachmentRepository.save(att)
+```
+
+This pattern applies to any "stage then commit" resource flow (file → message, draft → post, etc.).

@@ -7,7 +7,7 @@ import java.util.UUID
 @Table(name = "attachments")
 class Attachment(
     @Id val id: UUID = UUID.randomUUID(),
-    val messageId: Long,
+    var messageId: Long? = null,
     val storagePath: String,
     val originalFilename: String,
     val mimeType: String,

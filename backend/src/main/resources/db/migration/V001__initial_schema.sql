@@ -91,7 +91,7 @@ CREATE TABLE messages (
 
 CREATE TABLE attachments (
     id                UUID    PRIMARY KEY DEFAULT gen_random_uuid(),
-    message_id        BIGINT  NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+    message_id        BIGINT  REFERENCES messages(id) ON DELETE CASCADE,
     storage_path      TEXT    NOT NULL, -- {roomId}/{uuid} — no original filename
     original_filename TEXT    NOT NULL,
     mime_type         TEXT    NOT NULL,
