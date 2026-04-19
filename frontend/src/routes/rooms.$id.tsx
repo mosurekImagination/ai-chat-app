@@ -1,6 +1,6 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useState } from "react";
-import { Hash, Lock, Info, UserPlus2, MessageSquare } from "lucide-react";
+import { Hash, Lock, Info, UserPlus2, MessageSquare, LogOut } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { MessageList } from "@/components/chat/MessageList";
@@ -46,6 +46,14 @@ function ChatPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["myRooms"] });
       queryClient.invalidateQueries({ queryKey: ["members", roomId] });
+    },
+  });
+
+  const leaveMutation = useMutation({
+    mutationFn: () => roomService.leaveRoom(roomId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["myRooms"] });
+      navigate({ to: "/rooms" });
     },
   });
 
@@ -181,6 +189,18 @@ function ChatPage() {
             <Button size="sm" onClick={() => joinMutation.mutate()} disabled={joinMutation.isPending}>
               <UserPlus2 className="mr-1.5 h-3.5 w-3.5" />
               Join
+            </Button>
+          )}
+          {isMember && room.visibility !== "DM" && room.ownerId !== user?.userId && (
+            <Button
+              size="sm"
+              variant="ghost"
+              aria-label="Leave room"
+              onClick={() => leaveMutation.mutate()}
+              disabled={leaveMutation.isPending}
+            >
+              <LogOut className="mr-1.5 h-3.5 w-3.5" />
+              Leave
             </Button>
           )}
           <Button size="icon" variant="ghost" aria-label="Room info">

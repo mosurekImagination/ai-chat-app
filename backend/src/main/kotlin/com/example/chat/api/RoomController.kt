@@ -4,10 +4,12 @@ import com.example.chat.config.ChatPrincipal
 import com.example.chat.domain.room.RoomService
 import com.example.chat.dto.BanUserInRoomRequest
 import com.example.chat.dto.CreateRoomRequest
+import com.example.chat.dto.InviteUserRequest
 import com.example.chat.dto.MemberResponse
 import com.example.chat.dto.MyRoomResponse
 import com.example.chat.dto.RoomBanResponse
 import com.example.chat.dto.RoomResponse
+import com.example.chat.dto.UpdateMemberRoleRequest
 import com.example.chat.dto.UpdateRoomRequest
 import jakarta.validation.Valid
 import org.springframework.http.HttpStatus
@@ -89,6 +91,22 @@ class RoomController(private val roomService: RoomService) {
         @PathVariable userId: Long,
         auth: Authentication,
     ) = roomService.unbanUserFromRoom(id, userId, auth.principal<ChatPrincipal>().userId)
+
+    @PatchMapping("/{id}/members/{userId}")
+    fun updateMemberRole(
+        @PathVariable id: Long,
+        @PathVariable userId: Long,
+        @Valid @RequestBody req: UpdateMemberRoleRequest,
+        auth: Authentication,
+    ): MemberResponse = roomService.updateMemberRole(id, userId, req.role, auth.principal<ChatPrincipal>().userId)
+
+    @PostMapping("/{id}/invitations")
+    @ResponseStatus(HttpStatus.CREATED)
+    fun inviteUser(
+        @PathVariable id: Long,
+        @Valid @RequestBody req: InviteUserRequest,
+        auth: Authentication,
+    ) = roomService.inviteUser(id, req.username, auth.principal<ChatPrincipal>().userId)
 }
 
 private fun <T> Authentication.principal(): T {

@@ -32,6 +32,7 @@ data class MessageResponse(
 )
 
 data class MessageEvent(val type: String, val message: MessageResponse)
+data class RoomEvent(val type: String, val roomId: Long)
 
 // Inbound STOMP frames
 data class ChatSendCommand(

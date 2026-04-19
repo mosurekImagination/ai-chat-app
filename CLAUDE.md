@@ -1201,3 +1201,31 @@ const badge = page.locator("aside a").filter({ hasText: roomName }).locator(".bg
 ```
 
 The same principle applies to any locator that targets a generic element type inside a container with multiple siblings of that type — always add a class, role, or attribute filter.
+
+### STOMP Mutation Notifications Must Be Sent AFTER the Repository Call Commits
+When a destructive operation (delete room, ban member, etc.) is `@Transactional` and also sends a STOMP event, the event must be published **after** the repository call — not before. The STOMP event triggers `invalidateQueries` on connected clients, which immediately refetches from the DB. If the event fires before the DB row is deleted (even in the same transaction), the refetch sees stale data and the room/member still appears.
+
+```kotlin
+// WRONG — STOMP event sent before deleteById; client refetch sees room still exists
+messagingTemplate.convertAndSend("/topic/room.$roomId", RoomEvent("DELETED", roomId))
+roomRepository.deleteById(roomId)
+
+// RIGHT — DB committed first; STOMP event fires after; client refetch sees deletion
+roomRepository.deleteById(roomId)
+messagingTemplate.convertAndSend("/topic/room.$roomId", RoomEvent("DELETED", roomId))
+```
+
+This applies to any STOMP notification paired with a write operation — always write to DB first, then push the event.
+
+### Playwright `.locator("..")` Only Climbs One DOM Level — Use `.filter()` for Row Targeting
+`locator("text=username").locator("..")` goes up exactly one level in the DOM tree. If action buttons are several ancestors above the text span (e.g., inside a flex row div → inner div → span), the parent locator won't reach them and subsequent assertions fail with "element not found". Use `.filter({ hasText })` on the outer row selector instead:
+
+```typescript
+// WRONG — ".." goes up 1 level; buttons are 3+ levels above the text span
+const row = dialog.locator("text=username").locator("..");
+await expect(row.locator('button:has-text("Ban")')).toBeVisible(); // fails
+
+// RIGHT — target the row container directly with filter
+const row = dialog.locator("div.rounded-md").filter({ hasText: username });
+await expect(row.locator('button:has-text("Ban")')).toBeVisible(); // correct
+```

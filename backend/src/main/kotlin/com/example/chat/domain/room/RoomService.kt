@@ -7,14 +7,17 @@ import com.example.chat.domain.exception.ValidationException
 import com.example.chat.domain.file.FileStorageService
 import com.example.chat.domain.message.AttachmentRepository
 import com.example.chat.domain.notification.NotificationService
+import com.example.chat.domain.user.UserRepository
 import com.example.chat.dto.BanUserInRoomRequest
 import com.example.chat.dto.CreateRoomRequest
 import com.example.chat.dto.MemberResponse
 import com.example.chat.dto.MyRoomResponse
 import com.example.chat.dto.RoomBanResponse
+import com.example.chat.dto.RoomEvent
 import com.example.chat.dto.RoomResponse
 import com.example.chat.dto.UpdateRoomRequest
 import com.example.chat.dto.UserSummary
+import org.springframework.messaging.simp.SimpMessagingTemplate
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 
@@ -23,10 +26,13 @@ class RoomService(
     private val roomRepository: RoomRepository,
     private val roomMemberRepository: RoomMemberRepository,
     private val roomBanRepository: RoomBanRepository,
+    private val roomInvitationRepository: RoomInvitationRepository,
     private val roomReadCursorRepository: RoomReadCursorRepository,
     private val notificationService: NotificationService,
     private val attachmentRepository: AttachmentRepository,
     private val fileStorageService: FileStorageService,
+    private val userRepository: UserRepository,
+    private val messagingTemplate: SimpMessagingTemplate,
 ) {
 
     @Transactional
@@ -54,7 +60,11 @@ class RoomService(
         val room = roomRepository.findById(roomId).orElseThrow { EntityNotFoundException() }
         if (roomBanRepository.existsByRoomIdAndUserId(roomId, userId)) throw ForbiddenException("ROOM_BANNED")
         if (roomMemberRepository.existsByRoomIdAndUserId(roomId, userId)) throw ConflictException("ALREADY_MEMBER")
-        if (room.visibility == "PRIVATE") throw ForbiddenException("INVITE_REQUIRED")
+        if (room.visibility == "PRIVATE") {
+            if (!roomInvitationRepository.existsByRoomIdAndUserId(roomId, userId))
+                throw ForbiddenException("INVITE_REQUIRED")
+            roomInvitationRepository.deleteByRoomIdAndUserId(roomId, userId)
+        }
         roomMemberRepository.save(RoomMember(roomId = roomId, userId = userId, role = "MEMBER"))
     }
 
@@ -107,6 +117,8 @@ class RoomService(
         }
         fileStorageService.deleteRoom(roomId)
         roomRepository.deleteById(roomId)
+        // Notify subscribers AFTER deletion so any triggered refetch sees the room gone
+        messagingTemplate.convertAndSend("/topic/room.$roomId", RoomEvent("DELETED", roomId))
     }
 
     fun getUnreadCount(roomId: Long, userId: Long): Long {
@@ -172,6 +184,34 @@ class RoomService(
         val ban = roomBanRepository.findByRoomIdAndUserId(roomId, targetUserId)
             ?: throw EntityNotFoundException()
         roomBanRepository.delete(ban)
+    }
+
+    @Transactional
+    fun updateMemberRole(roomId: Long, targetUserId: Long, role: String, requestingUserId: Long): MemberResponse {
+        val room = roomRepository.findById(roomId).orElseThrow { EntityNotFoundException() }
+        if (room.ownerId != requestingUserId) throw ForbiddenException("FORBIDDEN")
+        if (room.ownerId == targetUserId) throw ForbiddenException("CANNOT_DEMOTE_OWNER")
+        val member = roomMemberRepository.findByRoomIdAndUserId(roomId, targetUserId)
+            ?: throw EntityNotFoundException()
+        member.role = role
+        val saved = roomMemberRepository.save(member)
+        val user = userRepository.findById(targetUserId).orElseThrow { EntityNotFoundException() }
+        return MemberResponse(saved.userId, user.username, saved.role, saved.joinedAt.toString())
+    }
+
+    @Transactional
+    fun inviteUser(roomId: Long, username: String, invitingUserId: Long) {
+        val room = roomRepository.findById(roomId).orElseThrow { EntityNotFoundException() }
+        val requestingMember = roomMemberRepository.findByRoomIdAndUserId(roomId, invitingUserId)
+        if (requestingMember == null || requestingMember.role !in listOf("ADMIN")) {
+            if (room.ownerId != invitingUserId) throw ForbiddenException("FORBIDDEN")
+        }
+        val targetUser = userRepository.findByUsername(username).orElseThrow { EntityNotFoundException() }
+        if (roomMemberRepository.existsByRoomIdAndUserId(roomId, targetUser.id)) throw ConflictException("ALREADY_MEMBER")
+        if (!roomInvitationRepository.existsByRoomIdAndUserId(roomId, targetUser.id)) {
+            roomInvitationRepository.save(RoomInvitation(roomId = roomId, userId = targetUser.id, invitedById = invitingUserId))
+        }
+        notificationService.push(targetUser.id, "INVITE", mapOf("roomId" to roomId, "roomName" to (room.name ?: ""), "invitedByUsername" to (userRepository.findById(invitingUserId).map { it.username }.orElse("unknown"))))
     }
 
     private fun toResponse(p: RoomWithCountProjection) = RoomResponse(

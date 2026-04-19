@@ -28,6 +28,13 @@ export interface MemberResponse {
   joinedAt: string;
 }
 
+export interface RoomBanResponse {
+  userId: number;
+  username: string;
+  bannedBy: { id: number; username: string } | null;
+  createdAt: string;
+}
+
 export function roomDisplayName(room: Pick<MyRoomResponse, "name" | "visibility" | "otherUsername">): string {
   if (room.name) return room.name;
   if (room.visibility === "DM" && room.otherUsername) return room.otherUsername;
@@ -52,4 +59,23 @@ export const roomService = {
   leaveRoom: (id: number) => api.delete<void>(`/api/rooms/${id}/leave`),
 
   getMembers: (id: number) => api.get<MemberResponse[]>(`/api/rooms/${id}/members`),
+
+  updateMemberRole: (roomId: number, userId: number, role: "ADMIN" | "MEMBER") =>
+    api.patch<MemberResponse>(`/api/rooms/${roomId}/members/${userId}`, { role }),
+
+  banMember: (roomId: number, userId: number) =>
+    api.post<void>(`/api/rooms/${roomId}/bans`, { userId }),
+
+  getBanned: (roomId: number) => api.get<RoomBanResponse[]>(`/api/rooms/${roomId}/bans`),
+
+  unbanUser: (roomId: number, userId: number) =>
+    api.delete<void>(`/api/rooms/${roomId}/bans/${userId}`),
+
+  inviteUser: (roomId: number, username: string) =>
+    api.post<void>(`/api/rooms/${roomId}/invitations`, { username }),
+
+  updateRoom: (id: number, data: { name?: string; description?: string; visibility?: string }) =>
+    api.patch<RoomResponse>(`/api/rooms/${id}`, data),
+
+  deleteRoom: (id: number) => api.delete<void>(`/api/rooms/${id}`),
 };

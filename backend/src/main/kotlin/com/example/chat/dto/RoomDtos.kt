@@ -48,3 +48,11 @@ data class MyRoomResponse(
     val visibility: String,
     val unreadCount: Int,
 )
+
+data class UpdateMemberRoleRequest(
+    @field:NotBlank val role: String = "",
+)
+
+data class InviteUserRequest(
+    @field:NotBlank val username: String = "",
+)

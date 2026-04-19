@@ -44,6 +44,7 @@ export function MembersPanel({ roomId, onManage }: MembersPanelProps) {
             variant="ghost"
             className="h-7 px-2 text-xs"
             onClick={onManage}
+            aria-label="Manage"
           >
             <Settings2 className="mr-1 h-3.5 w-3.5" />
             Manage

@@ -12,8 +12,11 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
-import { Trash2, Shield, Ban, ShieldOff } from "lucide-react";
-import { roomMembers, rooms, bans } from "@/lib/mockData";
+import { Trash2, Shield, Ban, ShieldOff, UserMinus } from "lucide-react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { roomService } from "@/lib/services/roomService";
+import { useAuth } from "@/contexts/AuthContext";
+import { useNavigate } from "@tanstack/react-router";
 
 interface ManageRoomModalProps {
   open: boolean;
@@ -22,15 +25,94 @@ interface ManageRoomModalProps {
 }
 
 export function ManageRoomModal({ open, onOpenChange, roomId }: ManageRoomModalProps) {
-  const room = roomId ? rooms.find((r) => r.id === roomId) : null;
-  const members = roomId ? (roomMembers[roomId] ?? []) : [];
-  const banned = roomId ? (bans[roomId] ?? []) : [];
-  const admins = members.filter((m) => m.role === "ADMIN");
-  const [search, setSearch] = useState("");
+  const { user } = useAuth();
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const [memberSearch, setMemberSearch] = useState("");
+  const [inviteUsername, setInviteUsername] = useState("");
+  const [settingName, setSettingName] = useState<string | null>(null);
+  const [settingDesc, setSettingDesc] = useState<string | null>(null);
+  const [settingVis, setSettingVis] = useState<string | null>(null);
 
+  const { data: room } = useQuery({
+    queryKey: ["room", roomId],
+    queryFn: () => roomService.getRoom(roomId!),
+    enabled: open && roomId != null,
+  });
+
+  const { data: members = [] } = useQuery({
+    queryKey: ["members", roomId],
+    queryFn: () => roomService.getMembers(roomId!),
+    enabled: open && roomId != null,
+  });
+
+  const { data: banned = [] } = useQuery({
+    queryKey: ["bans", roomId],
+    queryFn: () => roomService.getBanned(roomId!),
+    enabled: open && roomId != null,
+  });
+
+  const invalidate = () => {
+    queryClient.invalidateQueries({ queryKey: ["members", roomId] });
+    queryClient.invalidateQueries({ queryKey: ["bans", roomId] });
+    queryClient.invalidateQueries({ queryKey: ["myRooms"] });
+  };
+
+  const banMutation = useMutation({
+    mutationFn: (userId: number) => roomService.banMember(roomId!, userId),
+    onSuccess: invalidate,
+  });
+
+  const roleMutation = useMutation({
+    mutationFn: ({ userId, role }: { userId: number; role: "ADMIN" | "MEMBER" }) =>
+      roomService.updateMemberRole(roomId!, userId, role),
+    onSuccess: invalidate,
+  });
+
+  const unbanMutation = useMutation({
+    mutationFn: (userId: number) => roomService.unbanUser(roomId!, userId),
+    onSuccess: invalidate,
+  });
+
+  const inviteMutation = useMutation({
+    mutationFn: () => roomService.inviteUser(roomId!, inviteUsername.trim()),
+    onSuccess: () => setInviteUsername(""),
+  });
+
+  const updateRoomMutation = useMutation({
+    mutationFn: () =>
+      roomService.updateRoom(roomId!, {
+        name: settingName ?? undefined,
+        description: settingDesc ?? undefined,
+        visibility: settingVis ?? undefined,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["room", roomId] });
+      queryClient.invalidateQueries({ queryKey: ["myRooms"] });
+      setSettingName(null);
+      setSettingDesc(null);
+      setSettingVis(null);
+    },
+  });
+
+  const deleteRoomMutation = useMutation({
+    mutationFn: () => roomService.deleteRoom(roomId!),
+    onSuccess: () => {
+      onOpenChange(false);
+      queryClient.invalidateQueries({ queryKey: ["myRooms"] });
+      navigate({ to: "/rooms" });
+    },
+  });
+
+  const isOwner = room?.ownerId === user?.userId;
+  const admins = members.filter((m) => m.role === "ADMIN");
   const filteredMembers = members.filter((m) =>
-    m.username.toLowerCase().includes(search.toLowerCase()),
+    m.username.toLowerCase().includes(memberSearch.toLowerCase()),
   );
+
+  const currentName = settingName ?? room?.name ?? "";
+  const currentDesc = settingDesc ?? room?.description ?? "";
+  const currentVis = settingVis ?? room?.visibility ?? "PUBLIC";
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -55,8 +137,8 @@ export function ManageRoomModal({ open, onOpenChange, roomId }: ManageRoomModalP
           <TabsContent value="members" className="space-y-3 pt-4">
             <Input
               placeholder="Search members…"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              value={memberSearch}
+              onChange={(e) => setMemberSearch(e.target.value)}
             />
             <div className="max-h-80 space-y-1 overflow-y-auto scrollbar-thin">
               {filteredMembers.length === 0 ? (
@@ -81,18 +163,36 @@ export function ManageRoomModal({ open, onOpenChange, roomId }: ManageRoomModalP
                     </div>
                     {room?.ownerId !== m.userId && (
                       <div className="flex items-center gap-2">
-                        {m.role === "MEMBER" ? (
-                          <Button size="sm" variant="outline">
-                            <Shield className="mr-1 h-3.5 w-3.5" />
-                            Make admin
-                          </Button>
-                        ) : (
-                          <Button size="sm" variant="outline">
-                            <ShieldOff className="mr-1 h-3.5 w-3.5" />
-                            Remove admin
-                          </Button>
+                        {isOwner && (
+                          m.role === "MEMBER" ? (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => roleMutation.mutate({ userId: m.userId, role: "ADMIN" })}
+                              disabled={roleMutation.isPending}
+                            >
+                              <Shield className="mr-1 h-3.5 w-3.5" />
+                              Make admin
+                            </Button>
+                          ) : (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => roleMutation.mutate({ userId: m.userId, role: "MEMBER" })}
+                              disabled={roleMutation.isPending}
+                            >
+                              <ShieldOff className="mr-1 h-3.5 w-3.5" />
+                              Remove admin
+                            </Button>
+                          )
                         )}
-                        <Button size="sm" variant="ghost" className="text-destructive">
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="text-destructive"
+                          onClick={() => banMutation.mutate(m.userId)}
+                          disabled={banMutation.isPending}
+                        >
                           <Ban className="mr-1 h-3.5 w-3.5" />
                           Ban
                         </Button>
@@ -118,11 +218,17 @@ export function ManageRoomModal({ open, onOpenChange, roomId }: ManageRoomModalP
                     <Badge className="bg-primary/20 text-primary-foreground">ADMIN</Badge>
                     <span className="text-sm font-medium">{a.username}</span>
                     {room?.ownerId === a.userId && (
-                      <span className="text-xs text-muted-foreground">(owner)</span>
+                      <span className="text-xs text-muted-foreground">(cannot lose admin rights)</span>
                     )}
                   </div>
-                  {room?.ownerId !== a.userId && (
-                    <Button size="sm" variant="outline">
+                  {isOwner && room?.ownerId !== a.userId && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => roleMutation.mutate({ userId: a.userId, role: "MEMBER" })}
+                      disabled={roleMutation.isPending}
+                    >
+                      <UserMinus className="mr-1 h-3.5 w-3.5" />
                       Remove admin
                     </Button>
                   )}
@@ -148,7 +254,12 @@ export function ManageRoomModal({ open, onOpenChange, roomId }: ManageRoomModalP
                       {new Date(b.createdAt).toLocaleDateString()}
                     </div>
                   </div>
-                  <Button size="sm" variant="outline">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => unbanMutation.mutate(b.userId)}
+                    disabled={unbanMutation.isPending}
+                  >
                     Unban
                   </Button>
                 </div>
@@ -159,9 +270,27 @@ export function ManageRoomModal({ open, onOpenChange, roomId }: ManageRoomModalP
           {/* INVITATIONS */}
           <TabsContent value="invites" className="space-y-3 pt-4">
             <div className="flex gap-2">
-              <Input placeholder="Username to invite" />
-              <Button>Send invite</Button>
+              <Input
+                placeholder="Username to invite"
+                value={inviteUsername}
+                onChange={(e) => setInviteUsername(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && inviteUsername.trim() && inviteMutation.mutate()}
+              />
+              <Button
+                onClick={() => inviteMutation.mutate()}
+                disabled={!inviteUsername.trim() || inviteMutation.isPending}
+              >
+                Send invite
+              </Button>
             </div>
+            {inviteMutation.isSuccess && (
+              <p className="text-xs text-green-600">Invitation sent.</p>
+            )}
+            {inviteMutation.isError && (
+              <p className="text-xs text-destructive">
+                {(inviteMutation.error as Error)?.message ?? "Failed to send invite."}
+              </p>
+            )}
             <p className="text-xs text-muted-foreground">
               Invitations let users join without searching the public catalog.
             </p>
@@ -171,11 +300,21 @@ export function ManageRoomModal({ open, onOpenChange, roomId }: ManageRoomModalP
           <TabsContent value="settings" className="space-y-4 pt-4">
             <div className="space-y-1.5">
               <Label htmlFor="setting-name">Name</Label>
-              <Input id="setting-name" defaultValue={room?.name ?? ""} maxLength={50} />
+              <Input
+                id="setting-name"
+                value={currentName}
+                onChange={(e) => setSettingName(e.target.value)}
+                maxLength={64}
+              />
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="setting-desc">Description</Label>
-              <Textarea id="setting-desc" defaultValue={room?.description ?? ""} rows={3} />
+              <Textarea
+                id="setting-desc"
+                value={currentDesc}
+                onChange={(e) => setSettingDesc(e.target.value)}
+                rows={3}
+              />
             </div>
             <div className="space-y-1.5">
               <Label>Visibility</Label>
@@ -185,21 +324,43 @@ export function ManageRoomModal({ open, onOpenChange, roomId }: ManageRoomModalP
                 </div>
               ) : (
                 <div className="flex gap-2">
-                  <Button variant={room?.visibility === "PUBLIC" ? "default" : "outline"} size="sm">
+                  <Button
+                    variant={currentVis === "PUBLIC" ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setSettingVis("PUBLIC")}
+                  >
                     Public
                   </Button>
-                  <Button variant={room?.visibility === "PRIVATE" ? "default" : "outline"} size="sm">
+                  <Button
+                    variant={currentVis === "PRIVATE" ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setSettingVis("PRIVATE")}
+                  >
                     Private
                   </Button>
                 </div>
               )}
             </div>
             <div className="flex justify-between border-t border-border pt-4">
-              <Button variant="destructive" size="sm">
-                <Trash2 className="mr-2 h-4 w-4" />
-                Delete room
-              </Button>
-              <Button>Save changes</Button>
+              {isOwner && (
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  onClick={() => deleteRoomMutation.mutate()}
+                  disabled={deleteRoomMutation.isPending}
+                >
+                  <Trash2 className="mr-2 h-4 w-4" />
+                  Delete room
+                </Button>
+              )}
+              {isOwner && (
+                <Button
+                  onClick={() => updateRoomMutation.mutate()}
+                  disabled={updateRoomMutation.isPending}
+                >
+                  Save changes
+                </Button>
+              )}
             </div>
           </TabsContent>
         </Tabs>
