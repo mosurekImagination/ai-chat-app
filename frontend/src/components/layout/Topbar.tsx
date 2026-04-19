@@ -1,4 +1,4 @@
-import { Link } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { Bell, Compass, Settings, LogOut, UserCircle2, Users } from "lucide-react";
 import {
   DropdownMenu,
@@ -11,15 +11,24 @@ import {
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { currentUser } from "@/lib/mockData";
+import { useAuth } from "@/contexts/AuthContext";
 
 interface TopbarProps {
   onOpenSessions: () => void;
   onOpenAccount: () => void;
   onOpenFriendRequest: () => void;
+  pendingFriendRequests?: number;
 }
 
-export function Topbar({ onOpenSessions, onOpenAccount, onOpenFriendRequest }: TopbarProps) {
+export function Topbar({ onOpenSessions, onOpenAccount, onOpenFriendRequest, pendingFriendRequests = 0 }: TopbarProps) {
+  const { user, logout } = useAuth();
+  const navigate = useNavigate();
+
+  const handleLogout = async () => {
+    await logout();
+    navigate({ to: "/login" });
+  };
+
   return (
     <header className="flex h-14 items-center justify-between border-b border-border bg-topbar px-4">
       <div className="flex items-center gap-6">
@@ -50,9 +59,11 @@ export function Topbar({ onOpenSessions, onOpenAccount, onOpenFriendRequest }: T
           aria-label="Friend requests"
         >
           <Users className="h-5 w-5" />
-          <Badge className="absolute -top-0.5 -right-0.5 h-4 min-w-4 rounded-full bg-destructive p-0 text-[10px]">
-            1
-          </Badge>
+          {pendingFriendRequests > 0 && (
+            <Badge className="absolute -top-0.5 -right-0.5 h-4 min-w-4 rounded-full bg-destructive p-0 text-[10px]">
+              {pendingFriendRequests}
+            </Badge>
+          )}
         </Button>
         <Button variant="ghost" size="icon" aria-label="Notifications">
           <Bell className="h-5 w-5" />
@@ -63,14 +74,14 @@ export function Topbar({ onOpenSessions, onOpenAccount, onOpenFriendRequest }: T
             <button className="flex items-center gap-2 rounded-md px-2 py-1 transition-colors hover:bg-accent">
               <Avatar className="h-7 w-7">
                 <AvatarFallback className="bg-primary text-primary-foreground text-xs">
-                  {currentUser.username.slice(0, 1).toUpperCase()}
+                  {user?.username.slice(0, 1).toUpperCase() ?? "?"}
                 </AvatarFallback>
               </Avatar>
-              <span className="text-sm font-medium">{currentUser.username}</span>
+              <span className="text-sm font-medium">{user?.username ?? ""}</span>
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-56">
-            <DropdownMenuLabel>{currentUser.email}</DropdownMenuLabel>
+            <DropdownMenuLabel>{user?.username}</DropdownMenuLabel>
             <DropdownMenuSeparator />
             <DropdownMenuItem onSelect={onOpenAccount}>
               <UserCircle2 className="mr-2 h-4 w-4" />
@@ -81,11 +92,9 @@ export function Topbar({ onOpenSessions, onOpenAccount, onOpenFriendRequest }: T
               Active sessions
             </DropdownMenuItem>
             <DropdownMenuSeparator />
-            <DropdownMenuItem asChild>
-              <Link to="/login" className="text-destructive">
-                <LogOut className="mr-2 h-4 w-4" />
-                Sign out
-              </Link>
+            <DropdownMenuItem onSelect={handleLogout} className="text-destructive">
+              <LogOut className="mr-2 h-4 w-4" />
+              Sign out
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>

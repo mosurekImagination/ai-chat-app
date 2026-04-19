@@ -4,26 +4,22 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
+import { useAuth, ApiError } from "@/contexts/AuthContext";
 
 export const Route = createFileRoute("/login")({
-  head: () => ({
-    meta: [
-      { title: "Sign in — Relay" },
-      { name: "description", content: "Sign in to Relay to chat with rooms and friends." },
-    ],
-  }),
   component: LoginPage,
 });
 
 function LoginPage() {
   const navigate = useNavigate();
-  const [email, setEmail] = useState("alice@example.com");
+  const { login } = useAuth();
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [keep, setKeep] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
     if (!email || !password) {
@@ -31,10 +27,18 @@ function LoginPage() {
       return;
     }
     setLoading(true);
-    setTimeout(() => {
-      setLoading(false);
+    try {
+      await login(email, password, keep);
       navigate({ to: "/rooms" });
-    }, 400);
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 401) {
+        setError("Invalid email or password.");
+      } else {
+        setError("Something went wrong. Please try again.");
+      }
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -82,7 +86,7 @@ function LoginPage() {
           {loading ? "Signing in…" : "Sign in"}
         </Button>
         <p className="pt-2 text-center text-sm text-muted-foreground">
-          Don't have an account?{" "}
+          Don&apos;t have an account?{" "}
           <Link to="/register" className="text-primary hover:underline">
             Create one
           </Link>

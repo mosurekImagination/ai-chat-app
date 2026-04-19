@@ -936,3 +936,88 @@ plugins: [
   tsconfigPaths(),
 ]
 ```
+
+### TanStack Router `beforeLoad` Cannot Access React Context — Use `useEffect` AuthGuard
+`beforeLoad` and `loader` in TanStack Router run outside the React rendering tree, before providers mount. Calling `useContext(AuthContext)` inside them throws "Cannot read properties of undefined". AuthGuard must live inside the route component as a `useEffect` that redirects when `!loading && !user`:
+
+```tsx
+// WRONG — AuthContext not available outside React tree
+export const Route = createFileRoute('/rooms')({
+  beforeLoad: ({ context }) => {
+    const { user } = useAuth(); // runtime error: hooks outside component
+    if (!user) throw redirect({ to: '/login' });
+  }
+});
+
+// RIGHT — useEffect AuthGuard inside the component
+function RoomsLayout() {
+  const { user, loading } = useAuth();
+  const navigate = useNavigate();
+  useEffect(() => {
+    if (!loading && !user) navigate({ to: '/login' });
+  }, [loading, user]);
+  if (loading || !user) return <LoadingSpinner />;
+  return <Outlet />;
+}
+```
+Also add a loading/!user early return to prevent rendering protected content before the redirect fires.
+
+### Lovable Route Files Include `head()` SSR Export — Remove for SPA
+Lovable's TanStack Start scaffold adds a `head()` export to every route file via `createFileRoute`. In plain TanStack Router (SPA mode), `createFileRoute` does not accept `head` and TypeScript errors. Remove all `head()` calls from every route file created by Lovable before running `npm run build`.
+
+```tsx
+// WRONG — TanStack Start only
+export const Route = createFileRoute('/login')({
+  head: () => ({ meta: [{ title: 'Login' }] }),
+  component: LoginPage,
+});
+
+// RIGHT — plain TanStack Router
+export const Route = createFileRoute('/login')({
+  component: LoginPage,
+});
+```
+
+### `logout()` Must Clear State in `finally` — Network Error Still Invalidates Client
+If the `POST /api/auth/logout` request fails (network error, 500), the client should still clear the local user state. A `try/catch` that only clears on success leaves users stuck in a ghost-authenticated state. Always use `finally`:
+
+```tsx
+// WRONG — user state survives a failed logout call
+const logout = async () => {
+  await authService.logout();
+  setUser(null);  // never reached on network error
+};
+
+// RIGHT — clear state regardless of network outcome
+const logout = async () => {
+  try { await authService.logout(); }
+  finally { setUser(null); clearTimeout(refreshTimerRef.current); }
+};
+```
+
+### MailHog API for E2E Email Testing
+To retrieve emails in Playwright tests, poll `http://localhost:8025/api/v2/messages`. The API is always available regardless of whether mail was sent (returns `{ items: [] }` if empty). Latest message is `items[0]`. Extract tokens from `Content.Body` (plain text, URL-encoded):
+
+```typescript
+const mailResp = await request.get("http://localhost:8025/api/v2/messages");
+const mailJson = await mailResp.json();
+const body: string = mailJson.items[0]?.Content?.Body ?? "";
+const tokenMatch = body.match(/token=([A-Za-z0-9_-]+)/);
+const token = tokenMatch?.[1];
+test.skip(!token, "Could not extract reset token from MailHog");
+```
+
+### `validateSearch` Is Required to Read Query Params in TanStack Router
+TanStack Router does not expose raw query strings via `useSearch()` without a `validateSearch` schema on the route. Without it, `useSearch()` returns an empty object. Use `validateSearch` with a Zod schema or manual validator:
+
+```tsx
+export const Route = createFileRoute('/reset-password')({
+  validateSearch: (search: Record<string, unknown>) => ({
+    token: (search.token as string) ?? '',
+  }),
+  component: ResetPasswordPage,
+});
+
+// Inside the component:
+const { token } = Route.useSearch();
+```

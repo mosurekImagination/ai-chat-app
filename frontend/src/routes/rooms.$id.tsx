@@ -54,12 +54,6 @@ function makeOlderPage(roomId: number, beforeId: number, page: number): Message[
 }
 
 export const Route = createFileRoute("/rooms/$id")({
-  head: ({ params }) => ({
-    meta: [
-      { title: `Room — Relay` },
-      { name: "description", content: `Chat in room ${params.id} on Relay.` },
-    ],
-  }),
   notFoundComponent: () => (
     <div className="flex flex-1 flex-col items-center justify-center px-6 text-center">
       <h2 className="text-xl font-semibold text-foreground">Room not found</h2>

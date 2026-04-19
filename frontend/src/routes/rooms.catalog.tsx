@@ -6,12 +6,6 @@ import { Button } from "@/components/ui/button";
 import { rooms, roomMembers, currentUser } from "@/lib/mockData";
 
 export const Route = createFileRoute("/rooms/catalog")({
-  head: () => ({
-    meta: [
-      { title: "Public Rooms — Relay" },
-      { name: "description", content: "Browse and join public chat rooms on Relay." },
-    ],
-  }),
   component: CatalogPage,
 });
 
