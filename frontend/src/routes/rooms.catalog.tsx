@@ -1,9 +1,11 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useState, useMemo } from "react";
 import { Search, Hash, Users } from "lucide-react";
+import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { rooms, roomMembers, currentUser } from "@/lib/mockData";
+import { roomService } from "@/lib/services/roomService";
+import type { RoomResponse } from "@/lib/services/roomService";
 
 export const Route = createFileRoute("/rooms/catalog")({
   component: CatalogPage,
@@ -12,14 +14,28 @@ export const Route = createFileRoute("/rooms/catalog")({
 function CatalogPage() {
   const [q, setQ] = useState("");
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
 
-  const publicRooms = useMemo(
-    () =>
-      rooms
-        .filter((r) => r.visibility === "PUBLIC")
-        .filter((r) => (r.name ?? "").toLowerCase().includes(q.toLowerCase())),
-    [q],
-  );
+  const { data: publicRooms = [], isLoading } = useQuery({
+    queryKey: ["publicRooms", q],
+    queryFn: () => roomService.listPublic(q || undefined),
+  });
+
+  const { data: myRooms = [] } = useQuery({
+    queryKey: ["myRooms"],
+    queryFn: roomService.getMyRooms,
+  });
+
+  const myRoomIds = useMemo(() => new Set(myRooms.map((r) => r.id)), [myRooms]);
+
+  const joinMutation = useMutation({
+    mutationFn: (id: number) => roomService.joinRoom(id),
+    onSuccess: (_data, id) => {
+      queryClient.invalidateQueries({ queryKey: ["myRooms"] });
+      queryClient.invalidateQueries({ queryKey: ["publicRooms"] });
+      navigate({ to: "/rooms/$id", params: { id: String(id) } });
+    },
+  });
 
   return (
     <div className="scrollbar-thin flex-1 overflow-y-auto">
@@ -41,15 +57,18 @@ function CatalogPage() {
           />
         </div>
 
-        {publicRooms.length === 0 ? (
+        {isLoading ? (
+          <div className="flex items-center justify-center py-12">
+            <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+          </div>
+        ) : publicRooms.length === 0 ? (
           <div className="rounded-lg border border-dashed border-border bg-card/40 px-6 py-12 text-center">
             <p className="text-sm text-muted-foreground">No public rooms found.</p>
           </div>
         ) : (
           <div className="grid gap-3 sm:grid-cols-2">
-            {publicRooms.map((r) => {
-              const members = roomMembers[r.id] ?? [];
-              const joined = members.some((m) => m.userId === currentUser.userId);
+            {publicRooms.map((r: RoomResponse) => {
+              const joined = myRoomIds.has(r.id);
               return (
                 <div
                   key={r.id}
@@ -72,7 +91,14 @@ function CatalogPage() {
                     <Button
                       size="sm"
                       variant={joined ? "outline" : "default"}
-                      onClick={() => navigate({ to: "/rooms/$id", params: { id: String(r.id) } })}
+                      onClick={() => {
+                        if (joined) {
+                          navigate({ to: "/rooms/$id", params: { id: String(r.id) } });
+                        } else {
+                          joinMutation.mutate(r.id);
+                        }
+                      }}
+                      disabled={joinMutation.isPending && joinMutation.variables === r.id}
                     >
                       {joined ? "Open" : "Join"}
                     </Button>

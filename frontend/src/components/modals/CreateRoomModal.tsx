@@ -1,5 +1,7 @@
 import { useState } from "react";
 import { toast } from "sonner";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useNavigate } from "@tanstack/react-router";
 import {
   Dialog,
   DialogContent,
@@ -14,6 +16,8 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { Hash, Lock } from "lucide-react";
+import { roomService } from "@/lib/services/roomService";
+import { ApiError } from "@/lib/api";
 
 interface CreateRoomModalProps {
   open: boolean;
@@ -24,6 +28,39 @@ export function CreateRoomModal({ open, onOpenChange }: CreateRoomModalProps) {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [visibility, setVisibility] = useState<"PUBLIC" | "PRIVATE">("PUBLIC");
+  const [error, setError] = useState<string | null>(null);
+
+  const queryClient = useQueryClient();
+  const navigate = useNavigate();
+
+  const createMutation = useMutation({
+    mutationFn: () =>
+      roomService.createRoom({
+        name: name.trim(),
+        description: description.trim() || undefined,
+        visibility,
+      }),
+    onSuccess: (room) => {
+      queryClient.invalidateQueries({ queryKey: ["myRooms"] });
+      queryClient.invalidateQueries({ queryKey: ["publicRooms"] });
+      setName("");
+      setDescription("");
+      setVisibility("PUBLIC");
+      setError(null);
+      onOpenChange(false);
+      toast.success(`Room created`, {
+        description: `#${room.name} is ready — invite people to join.`,
+      });
+      navigate({ to: "/rooms/$id", params: { id: String(room.id) } });
+    },
+    onError: (err) => {
+      if (err instanceof ApiError && err.code === "DUPLICATE_ROOM_NAME") {
+        setError("A room with this name already exists.");
+      } else {
+        setError("Failed to create room. Please try again.");
+      }
+    },
+  });
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -38,10 +75,14 @@ export function CreateRoomModal({ open, onOpenChange }: CreateRoomModalProps) {
             <Input
               id="room-name"
               value={name}
-              onChange={(e) => setName(e.target.value)}
+              onChange={(e) => {
+                setName(e.target.value);
+                setError(null);
+              }}
               placeholder="general"
               maxLength={50}
             />
+            {error && <p className="text-xs text-destructive">{error}</p>}
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="room-desc">Description</Label>
@@ -78,20 +119,10 @@ export function CreateRoomModal({ open, onOpenChange }: CreateRoomModalProps) {
             Cancel
           </Button>
           <Button
-            onClick={() => {
-              const trimmed = name.trim();
-              if (!trimmed) return;
-              toast.success(`Room created`, {
-                description: `#${trimmed} is ready — invite people to join.`,
-              });
-              setName("");
-              setDescription("");
-              setVisibility("PUBLIC");
-              onOpenChange(false);
-            }}
-            disabled={!name.trim()}
+            onClick={() => createMutation.mutate()}
+            disabled={!name.trim() || createMutation.isPending}
           >
-            Create room
+            {createMutation.isPending ? "Creating…" : "Create room"}
           </Button>
         </DialogFooter>
       </DialogContent>

@@ -142,6 +142,12 @@ Run `/test-slice` after implementing each slice. If any test fails — **stop, d
 
 **Never commit with failing tests.** Before every `git commit`, run `/test-slice N` and `/regression-check N`. A broken commit is worse than a delayed commit — once committed, a red test signals a broken repo to every future context.
 
+**Frontend regression gate:** Before committing a frontend slice, run all prior frontend E2E specs in addition to the current slice's spec:
+```bash
+cd frontend && npx playwright test e2e/sliceF2.spec.ts e2e/sliceF3.spec.ts  # example for after F3
+```
+Or run all at once: `npx playwright test e2e/`. Never commit if any prior slice's E2E tests regress.
+
 - **One mandatory commit per slice**, immediately after `/test-slice` passes. Never commit red tests.
 - Commit message format: `slice N: <short description>` — e.g., `slice 2: auth — register, login, sessions, password reset`
 - Within a slice, WIP commits are allowed for large in-progress work: `wip: slice 3 stomp broker setup`
@@ -1020,4 +1026,45 @@ export const Route = createFileRoute('/reset-password')({
 
 // Inside the component:
 const { token } = Route.useSearch();
+```
+
+### Playwright `request` Fixture Doesn't Share Browser Cookies — Use `page.request` for Authenticated API Calls
+The `request` fixture in Playwright tests is an isolated `APIRequestContext` with no shared state. Calling `request.post('/api/rooms', ...)` against an authenticated endpoint returns 401 even if the browser tab is logged in. Use `page.request.post(...)` instead — it shares the same cookie store as the browser context.
+
+```typescript
+// WRONG — isolated context, 401 on protected endpoints
+test("...", async ({ page, request }) => {
+  await register(page, ...);
+  await request.post("http://localhost:8080/api/rooms", { ... }); // 401
+});
+
+// RIGHT — shares browser cookies
+test("...", async ({ page }) => {
+  await register(page, ...);
+  await page.request.post("http://localhost:8080/api/rooms", { ... }); // 201
+});
+```
+
+### Playwright Assertions for Rooms Must Be Scoped to `main` or `aside`
+Room names appear in both the catalog (`main`) and the user's sidebar (`aside`). An unscoped `page.locator('text=roomName')` fails with "strict mode violation: resolved to 2 elements". Always scope assertions to the relevant container:
+
+```typescript
+// WRONG — strict mode violation if room appears in both sidebar and main
+await expect(page.locator(`text=${roomName}`)).toBeVisible();
+
+// RIGHT — scoped to main content area
+await expect(page.locator("main").locator(`text=${roomName}`)).toBeVisible();
+// or: await expect(page.locator("aside").locator(`text=${roomName}`)).toBeVisible();
+```
+
+### React Sidebar Accordion State Doesn't Reset on Navigation Within Layout
+`useState(!inRoom)` only initializes once when the component mounts. If a user navigates from `/rooms` (inRoom=false, accordion expanded) to `/rooms/123` (inRoom=true), `inRoom` changes but the `useState` value stays at the initialized value. Requires `useEffect` to sync:
+
+```tsx
+// WRONG — state only initializes once; navigation doesn't collapse accordion
+const [roomsOpen, setRoomsOpen] = useState(!inRoom);
+
+// RIGHT — useEffect collapses/expands on navigation
+const [roomsOpen, setRoomsOpen] = useState(!inRoom);
+useEffect(() => { setRoomsOpen(!inRoom); }, [inRoom]);
 ```

@@ -1,4 +1,4 @@
-import { Page } from "@playwright/test";
+import { Page, APIRequestContext } from "@playwright/test";
 
 let seq = Date.now();
 export function uniqueUser() {
@@ -8,6 +8,10 @@ export function uniqueUser() {
     username: `testuser${seq}`,
     password: "TestPass123!",
   };
+}
+
+export function uniqueRoomName() {
+  return `room-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 }
 
 export async function register(page: Page, email: string, username: string, password: string) {
@@ -35,4 +39,19 @@ export async function logout(page: Page) {
     // already clicked
   }
   await page.waitForURL("**/login**");
+}
+
+/** Create a room via the API, returns the room id */
+export async function createRoomViaApi(
+  request: APIRequestContext,
+  name: string,
+  visibility: "PUBLIC" | "PRIVATE" = "PUBLIC",
+  description?: string,
+): Promise<number> {
+  const resp = await request.post("http://localhost:8080/api/rooms", {
+    data: { name, visibility, description },
+    headers: { "Content-Type": "application/json" },
+  });
+  const body = await resp.json();
+  return body.id as number;
 }

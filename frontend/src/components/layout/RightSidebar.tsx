@@ -1,9 +1,12 @@
 import { Link, useParams } from "@tanstack/react-router";
-import { useState } from "react";
-import { ChevronDown, ChevronRight, Hash, Lock, Plus, UserPlus } from "lucide-react";
+import { useState, useEffect } from "react";
+import { ChevronDown, ChevronRight, Hash, Lock, MessageSquare, Plus, Search, UserPlus } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { rooms, friends, roomDisplayName } from "@/lib/mockData";
+import { Input } from "@/components/ui/input";
+import { roomService, roomDisplayName } from "@/lib/services/roomService";
+import type { MyRoomResponse } from "@/lib/services/roomService";
 import { PresenceDot } from "@/components/common/PresenceDot";
 import { MembersPanel } from "./MembersPanel";
 
@@ -18,13 +21,29 @@ export function RightSidebar({ onCreateRoom, onAddFriend, onManageRoom }: RightS
   const activeRoomId = (params as { id?: string }).id ? Number((params as { id?: string }).id) : null;
   const inRoom = activeRoomId !== null;
 
-  // When in a room, accordions start collapsed; otherwise expanded.
   const [roomsOpen, setRoomsOpen] = useState(!inRoom);
   const [contactsOpen, setContactsOpen] = useState(!inRoom);
 
-  const publicRooms = rooms.filter((r) => r.visibility === "PUBLIC");
-  const privateRooms = rooms.filter((r) => r.visibility === "PRIVATE");
-  const dmRooms = rooms.filter((r) => r.visibility === "DM");
+  useEffect(() => {
+    setRoomsOpen(!inRoom);
+    setContactsOpen(!inRoom);
+  }, [inRoom]);
+
+  const [roomSearch, setRoomSearch] = useState("");
+
+  const { data: myRooms = [] } = useQuery({
+    queryKey: ["myRooms"],
+    queryFn: roomService.getMyRooms,
+  });
+
+  const q = roomSearch.toLowerCase();
+  const filteredRooms = q
+    ? myRooms.filter((r) => roomDisplayName(r).toLowerCase().includes(q))
+    : myRooms;
+
+  const publicRooms = filteredRooms.filter((r) => r.visibility === "PUBLIC");
+  const privateRooms = filteredRooms.filter((r) => r.visibility === "PRIVATE");
+  const dmRooms = filteredRooms.filter((r) => r.visibility === "DM");
 
   return (
     <aside className="flex h-full w-[260px] shrink-0 flex-col border-l border-sidebar-border bg-sidebar text-sidebar-foreground">
@@ -49,17 +68,29 @@ export function RightSidebar({ onCreateRoom, onAddFriend, onManageRoom }: RightS
         >
           {roomsOpen && (
             <div className="space-y-3">
+              <div className="relative">
+                <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  value={roomSearch}
+                  onChange={(e) => setRoomSearch(e.target.value)}
+                  placeholder="Search rooms…"
+                  className="h-7 pl-8 text-xs"
+                  aria-label="Search rooms"
+                />
+              </div>
               <RoomGroup label="Public">
-                {publicRooms.map((r) => (
-                  <RoomLink
-                    key={r.id}
-                    id={r.id}
-                    name={roomDisplayName(r)}
-                    icon={<Hash className="h-3.5 w-3.5" />}
-                    unread={r.unreadCount}
-                    active={activeRoomId === r.id}
-                  />
-                ))}
+                {publicRooms.length === 0 ? (
+                  <EmptyHint text="No public rooms" />
+                ) : (
+                  publicRooms.map((r) => (
+                    <RoomLink
+                      key={r.id}
+                      room={r}
+                      icon={<Hash className="h-3.5 w-3.5" />}
+                      active={activeRoomId === r.id}
+                    />
+                  ))
+                )}
               </RoomGroup>
               <RoomGroup label="Private">
                 {privateRooms.length === 0 ? (
@@ -68,10 +99,8 @@ export function RightSidebar({ onCreateRoom, onAddFriend, onManageRoom }: RightS
                   privateRooms.map((r) => (
                     <RoomLink
                       key={r.id}
-                      id={r.id}
-                      name={roomDisplayName(r)}
+                      room={r}
                       icon={<Lock className="h-3.5 w-3.5" />}
-                      unread={r.unreadCount}
                       active={activeRoomId === r.id}
                     />
                   ))
@@ -84,10 +113,8 @@ export function RightSidebar({ onCreateRoom, onAddFriend, onManageRoom }: RightS
                   dmRooms.map((r) => (
                     <RoomLink
                       key={r.id}
-                      id={r.id}
-                      name={roomDisplayName(r)}
-                      icon={<span className="inline-block h-2 w-2 rounded-full bg-online" />}
-                      unread={r.unreadCount}
+                      room={r}
+                      icon={<MessageSquare className="h-3.5 w-3.5" />}
                       active={activeRoomId === r.id}
                     />
                   ))
@@ -117,19 +144,7 @@ export function RightSidebar({ onCreateRoom, onAddFriend, onManageRoom }: RightS
         >
           {contactsOpen && (
             <div className="space-y-0.5">
-              {friends.length === 0 ? (
-                <EmptyHint text="No friends yet. Send a friend request." />
-              ) : (
-                friends.map((f) => (
-                  <div
-                    key={f.userId}
-                    className="flex items-center gap-2 rounded px-2 py-1.5 text-sm transition-colors hover:bg-accent"
-                  >
-                    <PresenceDot status={f.status} />
-                    <span className="flex-1 truncate">{f.username}</span>
-                  </div>
-                ))
-              )}
+              <EmptyHint text="No friends yet. Send a friend request." />
             </div>
           )}
         </Section>
@@ -186,23 +201,12 @@ function RoomGroup({ label, children }: { label: string; children: React.ReactNo
   );
 }
 
-function RoomLink({
-  id,
-  name,
-  icon,
-  unread,
-  active,
-}: {
-  id: number;
-  name: string;
-  icon: React.ReactNode;
-  unread: number;
-  active: boolean;
-}) {
+function RoomLink({ room, icon, active }: { room: MyRoomResponse; icon: React.ReactNode; active: boolean }) {
+  const name = roomDisplayName(room);
   return (
     <Link
       to="/rooms/$id"
-      params={{ id: String(id) }}
+      params={{ id: String(room.id) }}
       className={cn(
         "flex items-center gap-2 rounded px-2 py-1.5 text-sm transition-colors",
         active
@@ -212,9 +216,9 @@ function RoomLink({
     >
       <span className="text-muted-foreground">{icon}</span>
       <span className="flex-1 truncate">{name}</span>
-      {unread > 0 && (
+      {room.unreadCount > 0 && (
         <span className="min-w-[1.25rem] rounded-full bg-destructive px-1.5 text-center text-[10px] font-semibold leading-5 text-destructive-foreground">
-          {unread}
+          {room.unreadCount}
         </span>
       )}
     </Link>
@@ -225,5 +229,4 @@ function EmptyHint({ text }: { text: string }) {
   return <div className="px-2 py-1 text-xs italic text-muted-foreground">{text}</div>;
 }
 
-// Re-export so layout can use it
-export { Button };
+export { Button, PresenceDot };

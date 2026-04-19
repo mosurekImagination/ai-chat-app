@@ -1,8 +1,10 @@
 import { Settings2 } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
-import { roomMembers, rooms, currentUser } from "@/lib/mockData";
 import { PresenceDot } from "@/components/common/PresenceDot";
 import { Badge } from "@/components/ui/badge";
+import { roomService } from "@/lib/services/roomService";
+import { useAuth } from "@/contexts/AuthContext";
 
 interface MembersPanelProps {
   roomId: number;
@@ -10,10 +12,22 @@ interface MembersPanelProps {
 }
 
 export function MembersPanel({ roomId, onManage }: MembersPanelProps) {
-  const members = roomMembers[roomId] ?? [];
-  const room = rooms.find((r) => r.id === roomId);
+  const { user } = useAuth();
+
+  const { data: members = [] } = useQuery({
+    queryKey: ["members", roomId],
+    queryFn: () => roomService.getMembers(roomId),
+    enabled: roomId > 0,
+  });
+
+  const { data: room } = useQuery({
+    queryKey: ["room", roomId],
+    queryFn: () => roomService.getRoom(roomId),
+    enabled: roomId > 0,
+  });
+
   const isOwnerOrAdmin = members.some(
-    (m) => m.userId === currentUser.userId && m.role === "ADMIN",
+    (m) => m.userId === user?.userId && m.role === "ADMIN",
   );
 
   return (
@@ -45,7 +59,7 @@ export function MembersPanel({ roomId, onManage }: MembersPanelProps) {
               key={m.userId}
               className="flex items-center gap-2 rounded px-2 py-1.5 text-sm transition-colors hover:bg-accent"
             >
-              <PresenceDot status={m.presence} />
+              <PresenceDot status="OFFLINE" />
               <span className="flex-1 truncate">{m.username}</span>
               {m.role === "ADMIN" && (
                 <Badge

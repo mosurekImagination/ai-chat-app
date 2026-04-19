@@ -1,57 +1,13 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
-import { useCallback, useMemo, useState } from "react";
-import { Hash, Lock, Info, Settings2, UserPlus2 } from "lucide-react";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { useCallback, useState } from "react";
+import { Hash, Lock, Info, Settings2, UserPlus2, MessageSquare } from "lucide-react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { MessageList } from "@/components/chat/MessageList";
 import { MessageInput } from "@/components/chat/MessageInput";
-import {
-  rooms,
-  messages as seededMessages,
-  roomMembers,
-  roomDisplayName,
-  currentUser,
-} from "@/lib/mockData";
+import { roomService, roomDisplayName } from "@/lib/services/roomService";
+import { useAuth } from "@/contexts/AuthContext";
 import type { Message } from "@/lib/types";
-
-/** Mock: generate a page of older messages before a given id. Returns [] after 3 pages. */
-function makeOlderPage(roomId: number, beforeId: number, page: number): Message[] {
-  if (page > 3) return [];
-  const base = beforeId - 1;
-  const senders = [
-    { userId: 2, username: "bob" },
-    { userId: 3, username: "carol" },
-    { userId: 1, username: "alice" },
-  ];
-  const samples = [
-    "earlier in the day…",
-    "anyone remember what we decided?",
-    "I'll dig up the link",
-    "lol",
-    "shipping the fix now",
-    "back from lunch",
-    "👀",
-    "let's pair on this later",
-  ];
-  const out: Message[] = [];
-  for (let i = 0; i < 20; i++) {
-    const id = base - i;
-    const minutesAgo = page * 60 + i * 3;
-    out.push({
-      id,
-      roomId,
-      sender: senders[(id + i) % senders.length],
-      content: samples[(id + i) % samples.length],
-      parentMessage: null,
-      attachments: [],
-      createdAt: new Date(Date.now() - minutesAgo * 60_000 - page * 3_600_000).toISOString(),
-      editedAt: null,
-      deleted: false,
-      tempId: null,
-    });
-  }
-  // Oldest first.
-  return out.reverse();
-}
 
 export const Route = createFileRoute("/rooms/$id")({
   notFoundComponent: () => (
@@ -71,44 +27,44 @@ export const Route = createFileRoute("/rooms/$id")({
 function ChatPage() {
   const { id } = Route.useParams();
   const roomId = Number(id);
-  const room = rooms.find((r) => r.id === roomId);
-  const initial = seededMessages[roomId] ?? [];
+  const { user } = useAuth();
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
 
-  const [list, setList] = useState<Message[]>(initial);
-  const [replyingTo, setReplyingTo] = useState<Message | null>(null);
-  const [pageCount, setPageCount] = useState(0);
+  const { data: room, isLoading } = useQuery({
+    queryKey: ["room", roomId],
+    queryFn: () => roomService.getRoom(roomId),
+  });
 
-  const loadOlder = useCallback(
-    async (beforeId: number) => {
-      // Simulate network latency.
-      await new Promise((r) => setTimeout(r, 500));
-      const next = pageCount + 1;
-      const older = makeOlderPage(roomId, beforeId, next);
-      if (older.length > 0) {
-        setList((prev) => [...older, ...prev]);
-        setPageCount(next);
-      }
-      return older;
+  const { data: members = [] } = useQuery({
+    queryKey: ["members", roomId],
+    queryFn: () => roomService.getMembers(roomId),
+    enabled: !!room,
+  });
+
+  const joinMutation = useMutation({
+    mutationFn: () => roomService.joinRoom(roomId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["myRooms"] });
+      queryClient.invalidateQueries({ queryKey: ["members", roomId] });
     },
-    [pageCount, roomId],
-  );
+  });
 
-  const handleEnter = useCallback(() => {
-    // Simulates POST /api/rooms/:id/read — clears unread cursor optimistically.
-    if (room) room.unreadCount = 0;
-  }, [room]);
+  // Keep mock messages in state until F4 wires real messaging
+  const [list, setList] = useState<Message[]>([]);
+  const [replyingTo, setReplyingTo] = useState<Message | null>(null);
 
+  const loadOlder = useCallback(async (_beforeId: number) => {
+    return [] as Message[];
+  }, []);
 
-  const members = roomMembers[roomId] ?? [];
-  const isMember = members.some((m) => m.userId === currentUser.userId);
-  const isAdmin = members.some(
-    (m) => m.userId === currentUser.userId && m.role === "ADMIN",
-  );
-
-  const displayName = useMemo(
-    () => (room ? roomDisplayName(room) : `room ${id}`),
-    [room, id],
-  );
+  if (isLoading) {
+    return (
+      <div className="flex flex-1 items-center justify-center">
+        <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+      </div>
+    );
+  }
 
   if (!room) {
     return (
@@ -124,20 +80,21 @@ function ChatPage() {
     );
   }
 
-  const VisibilityIcon = room.visibility === "PRIVATE" ? Lock : Hash;
+  const isMember = members.some((m) => m.userId === user?.userId);
+  const isAdmin = members.some((m) => m.userId === user?.userId && m.role === "ADMIN");
+  const displayName = roomDisplayName({ name: room.name, visibility: room.visibility, otherUsername: null });
+
+  const VisibilityIcon = room.visibility === "PRIVATE" ? Lock : room.visibility === "DM" ? MessageSquare : Hash;
 
   const handleSend = (content: string) => {
+    // TODO: F4 — wire to real STOMP messaging
     const newMsg: Message = {
       id: Date.now(),
       roomId,
-      sender: { userId: currentUser.userId, username: currentUser.username },
+      sender: user ? { userId: user.userId, username: user.username } : null,
       content,
       parentMessage: replyingTo
-        ? {
-            id: replyingTo.id,
-            sender: replyingTo.sender,
-            content: replyingTo.content,
-          }
+        ? { id: replyingTo.id, sender: replyingTo.sender, content: replyingTo.content }
         : null,
       attachments: [],
       createdAt: new Date().toISOString(),
@@ -151,13 +108,10 @@ function ChatPage() {
 
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col">
-      {/* Room header */}
       <header className="flex h-14 shrink-0 items-center justify-between border-b border-border bg-chat px-4">
         <div className="flex min-w-0 items-center gap-2">
           <VisibilityIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
-          <h1 className="truncate text-base font-semibold text-foreground">
-            {displayName}
-          </h1>
+          <h1 className="truncate text-base font-semibold text-foreground">{displayName}</h1>
           {room.description && (
             <>
               <span className="text-muted-foreground">·</span>
@@ -167,13 +121,21 @@ function ChatPage() {
         </div>
         <div className="flex items-center gap-1">
           {!isMember && room.visibility === "PUBLIC" && (
-            <Button size="sm">
+            <Button
+              size="sm"
+              onClick={() => joinMutation.mutate()}
+              disabled={joinMutation.isPending}
+            >
               <UserPlus2 className="mr-1.5 h-3.5 w-3.5" />
               Join
             </Button>
           )}
-          {isAdmin && (
-            <Button size="sm" variant="ghost">
+          {isAdmin && room.visibility !== "DM" && (
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => navigate({ to: "/rooms" })}
+            >
               <Settings2 className="mr-1.5 h-3.5 w-3.5" />
               Manage
             </Button>
@@ -188,7 +150,7 @@ function ChatPage() {
         messages={list}
         onReply={setReplyingTo}
         loadOlder={loadOlder}
-        onEnter={handleEnter}
+        onEnter={() => {}}
       />
       <MessageInput
         roomName={`#${displayName}`}
@@ -196,7 +158,11 @@ function ChatPage() {
         onCancelReply={() => setReplyingTo(null)}
         onSend={handleSend}
         disabled={!isMember}
-        disabledReason="Join this room to send messages."
+        disabledReason={
+          room.visibility === "PUBLIC"
+            ? "Join this room to send messages."
+            : "You are not a member of this room."
+        }
       />
     </div>
   );
