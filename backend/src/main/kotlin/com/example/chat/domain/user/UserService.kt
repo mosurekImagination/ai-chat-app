@@ -86,7 +86,10 @@ class UserService(
         val user = userRepository.findById(session.userId)
             .orElseThrow { UnauthorizedException("INVALID_CREDENTIALS") }
         val (accessToken, accessExpiry) = jwtUtil.generateAccessToken(user.id, session.id)
-        setAccessTokenCookie(response, accessToken)
+        // Preserve session-cookie vs persistent-cookie intent from the original login.
+        // Sessions with TTL > 8 days were created with keepSignedIn = true.
+        val keepSignedIn = session.expiresAt.isAfter(Instant.now().plusSeconds(8 * 86400))
+        setAccessTokenCookie(response, accessToken, keepSignedIn)
         return AuthResponse(userId = user.id, username = user.username, accessTokenExpiresAt = accessExpiry.toString())
     }
 
@@ -187,8 +190,8 @@ class UserService(
         )
 
         val (accessToken, accessExpiry) = jwtUtil.generateAccessToken(user.id, session.id)
-        setAccessTokenCookie(response, accessToken)
-        setRefreshTokenCookie(response, rawRefreshToken, refreshTtlDays * 86400)
+        setAccessTokenCookie(response, accessToken, keepSignedIn)
+        setRefreshTokenCookie(response, rawRefreshToken, if (keepSignedIn) refreshTtlDays * 86400 else -1)
 
         return AuthResponse(userId = user.id, username = user.username, accessTokenExpiresAt = accessExpiry.toString())
     }
@@ -214,12 +217,14 @@ class UserService(
         }
     }
 
-    private fun setAccessTokenCookie(response: HttpServletResponse, token: String) {
+    // keepSignedIn = false → session cookie (maxAge = -1, cleared on browser close)
+    // keepSignedIn = true  → persistent cookie (maxAge = TTL seconds)
+    private fun setAccessTokenCookie(response: HttpServletResponse, token: String, keepSignedIn: Boolean = true) {
         Cookie("access_token", token).apply {
             isHttpOnly = true
             secure = true
             path = "/"
-            maxAge = (jwtProperties.accessTokenExpiryMinutes * 60).toInt()
+            maxAge = if (keepSignedIn) (jwtProperties.accessTokenExpiryMinutes * 60).toInt() else -1
             setAttribute("SameSite", "Lax")
         }.also { response.addCookie(it) }
     }
@@ -229,6 +234,7 @@ class UserService(
             isHttpOnly = true
             secure = true
             path = "/api/auth/refresh"
+            // maxAgeSecs = -1 signals a session cookie (no Expires header)
             maxAge = maxAgeSecs.toInt()
             setAttribute("SameSite", "Lax")
         }.also { response.addCookie(it) }
