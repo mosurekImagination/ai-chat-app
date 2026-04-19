@@ -1,24 +1,22 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useCallback, useState } from "react";
-import { Hash, Lock, Info, Settings2, UserPlus2, MessageSquare } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import { Hash, Lock, Info, UserPlus2, MessageSquare } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { MessageList } from "@/components/chat/MessageList";
 import { MessageInput } from "@/components/chat/MessageInput";
 import { roomService, roomDisplayName } from "@/lib/services/roomService";
+import { messageService } from "@/lib/services/messageService";
+import { fileService } from "@/lib/services/fileService";
 import { useAuth } from "@/contexts/AuthContext";
+import { useStormp } from "@/contexts/StompContext";
 import type { Message } from "@/lib/types";
 
 export const Route = createFileRoute("/rooms/$id")({
   notFoundComponent: () => (
     <div className="flex flex-1 flex-col items-center justify-center px-6 text-center">
       <h2 className="text-xl font-semibold text-foreground">Room not found</h2>
-      <p className="mt-2 text-sm text-muted-foreground">
-        This room doesn't exist or you don't have access.
-      </p>
-      <Button asChild className="mt-4">
-        <Link to="/rooms">Back to rooms</Link>
-      </Button>
+      <Button asChild className="mt-4"><Link to="/rooms">Back to rooms</Link></Button>
     </div>
   ),
   component: ChatPage,
@@ -28,6 +26,7 @@ function ChatPage() {
   const { id } = Route.useParams();
   const roomId = Number(id);
   const { user } = useAuth();
+  const { subscribe, send } = useStormp();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
@@ -50,13 +49,84 @@ function ChatPage() {
     },
   });
 
-  // Keep mock messages in state until F4 wires real messaging
-  const [list, setList] = useState<Message[]>([]);
+  const [messages, setMessages] = useState<Message[]>([]);
   const [replyingTo, setReplyingTo] = useState<Message | null>(null);
 
-  const loadOlder = useCallback(async (_beforeId: number) => {
-    return [] as Message[];
-  }, []);
+  // Load initial history on mount
+  useEffect(() => {
+    if (!room) return;
+    messageService.getHistory(roomId).then((msgs) => {
+      // API returns newest-first; reverse to oldest-first for display
+      setMessages([...msgs].reverse());
+    }).catch(() => {});
+  }, [roomId, room]);
+
+  // Subscribe to room STOMP topic
+  useEffect(() => {
+    const unsubscribe = subscribe(`/topic/room.${roomId}`, (frame) => {
+      const event = JSON.parse(frame.body);
+
+      if (event.message) {
+        const msg: Message = event.message;
+        if (event.type === "NEW") {
+          setMessages((prev) => {
+            // Deduplicate: if same tempId already exists, replace it
+            if (msg.tempId) {
+              const idx = prev.findIndex((m) => m.tempId === msg.tempId);
+              if (idx !== -1) {
+                const next = [...prev];
+                next[idx] = msg;
+                return next;
+              }
+            }
+            return [...prev, msg];
+          });
+        } else if (event.type === "EDITED" || event.type === "DELETED") {
+          setMessages((prev) => prev.map((m) => m.id === msg.id ? msg : m));
+        }
+      } else if (event.type === "DELETED" && event.roomId) {
+        // Room was deleted
+        queryClient.invalidateQueries({ queryKey: ["myRooms"] });
+        navigate({ to: "/rooms" });
+      }
+    });
+    return unsubscribe;
+  }, [roomId, subscribe, navigate, queryClient]);
+
+  const loadOlder = useCallback(async (beforeId: number): Promise<Message[]> => {
+    const older = await messageService.getHistory(roomId, { before: beforeId });
+    const chronological = [...older].reverse();
+    if (chronological.length > 0) {
+      setMessages((prev) => [...chronological, ...prev]);
+    }
+    return chronological;
+  }, [roomId]);
+
+  const handleSend = useCallback((content: string, attachmentId?: string) => {
+    const tempId = crypto.randomUUID();
+    const payload: Record<string, unknown> = { roomId, content, tempId };
+    if (replyingTo) payload.parentMessageId = replyingTo.id;
+    if (attachmentId) payload.attachmentId = attachmentId;
+    send("/app/chat.send", payload);
+    setReplyingTo(null);
+  }, [roomId, replyingTo, send]);
+
+  const handleEdit = useCallback((messageId: number, newContent: string) => {
+    send("/app/chat.edit", { messageId, content: newContent });
+  }, [send]);
+
+  const handleDelete = useCallback((messageId: number) => {
+    send("/app/chat.delete", { messageId });
+  }, [send]);
+
+  const handleUploadFile = useCallback(async (file: File): Promise<string | undefined> => {
+    try {
+      const resp = await fileService.upload(file, roomId);
+      return resp.attachmentId;
+    } catch {
+      return undefined;
+    }
+  }, [roomId]);
 
   if (isLoading) {
     return (
@@ -70,12 +140,7 @@ function ChatPage() {
     return (
       <div className="flex flex-1 flex-col items-center justify-center px-6 text-center">
         <h2 className="text-xl font-semibold text-foreground">Room not found</h2>
-        <p className="mt-2 text-sm text-muted-foreground">
-          This room doesn't exist or you don't have access.
-        </p>
-        <Button asChild className="mt-4">
-          <Link to="/rooms">Back to rooms</Link>
-        </Button>
+        <Button asChild className="mt-4"><Link to="/rooms">Back to rooms</Link></Button>
       </div>
     );
   }
@@ -83,28 +148,7 @@ function ChatPage() {
   const isMember = members.some((m) => m.userId === user?.userId);
   const isAdmin = members.some((m) => m.userId === user?.userId && m.role === "ADMIN");
   const displayName = roomDisplayName({ name: room.name, visibility: room.visibility, otherUsername: null });
-
   const VisibilityIcon = room.visibility === "PRIVATE" ? Lock : room.visibility === "DM" ? MessageSquare : Hash;
-
-  const handleSend = (content: string) => {
-    // TODO: F4 — wire to real STOMP messaging
-    const newMsg: Message = {
-      id: Date.now(),
-      roomId,
-      sender: user ? { userId: user.userId, username: user.username } : null,
-      content,
-      parentMessage: replyingTo
-        ? { id: replyingTo.id, sender: replyingTo.sender, content: replyingTo.content }
-        : null,
-      attachments: [],
-      createdAt: new Date().toISOString(),
-      editedAt: null,
-      deleted: false,
-      tempId: crypto.randomUUID(),
-    };
-    setList((prev) => [...prev, newMsg]);
-    setReplyingTo(null);
-  };
 
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col">
@@ -121,23 +165,9 @@ function ChatPage() {
         </div>
         <div className="flex items-center gap-1">
           {!isMember && room.visibility === "PUBLIC" && (
-            <Button
-              size="sm"
-              onClick={() => joinMutation.mutate()}
-              disabled={joinMutation.isPending}
-            >
+            <Button size="sm" onClick={() => joinMutation.mutate()} disabled={joinMutation.isPending}>
               <UserPlus2 className="mr-1.5 h-3.5 w-3.5" />
               Join
-            </Button>
-          )}
-          {isAdmin && room.visibility !== "DM" && (
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={() => navigate({ to: "/rooms" })}
-            >
-              <Settings2 className="mr-1.5 h-3.5 w-3.5" />
-              Manage
             </Button>
           )}
           <Button size="icon" variant="ghost" aria-label="Room info">
@@ -147,8 +177,11 @@ function ChatPage() {
       </header>
 
       <MessageList
-        messages={list}
+        messages={messages}
         onReply={setReplyingTo}
+        onEdit={handleEdit}
+        onDelete={handleDelete}
+        isAdmin={isAdmin}
         loadOlder={loadOlder}
         onEnter={() => {}}
       />
@@ -157,6 +190,7 @@ function ChatPage() {
         replyingTo={replyingTo}
         onCancelReply={() => setReplyingTo(null)}
         onSend={handleSend}
+        onUploadFile={handleUploadFile}
         disabled={!isMember}
         disabledReason={
           room.visibility === "PUBLIC"

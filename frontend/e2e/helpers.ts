@@ -1,11 +1,12 @@
 import { Page, APIRequestContext } from "@playwright/test";
 
-let seq = Date.now();
+import crypto from "crypto";
+
 export function uniqueUser() {
-  seq++;
+  const id = `${Date.now()}${crypto.randomBytes(3).toString("hex")}`;
   return {
-    email: `testuser${seq}@example.com`,
-    username: `testuser${seq}`,
+    email: `testuser${id}@example.com`,
+    username: `tu${id}`,
     password: "TestPass123!",
   };
 }

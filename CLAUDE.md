@@ -107,6 +107,41 @@ docker compose down           # optional: stop after commit
 
 Build the backend image only when the slice is complete and tests pass locally first. Never iterate on failing code through Docker builds — the loop is too slow (1–2 min per build).
 
+### Frontend E2E Tests (Playwright)
+
+Run from `frontend/` with the fast loop active (backend on :8080, frontend dev server on :5173):
+
+```bash
+# Run one slice's tests
+npx playwright test e2e/sliceF4.spec.ts --project=chromium
+
+# Run regression (all prior slices + current)
+npx playwright test e2e/sliceF2.spec.ts e2e/sliceF3.spec.ts e2e/sliceF4.spec.ts --project=chromium
+
+# Run a single test by name grep
+npx playwright test e2e/sliceF4.spec.ts --project=chromium --grep "T-F4-08"
+```
+
+**When a test times out on an element that should be visible:**
+1. Check for a JS crash first — it's usually `global is not defined` (SockJS polyfill missing) or a React render error. The page renders blank; all selectors time out.
+2. Verify the dev server is running on :5173 and commands are run from `frontend/`.
+3. Use a quick Node snippet to check what the page actually renders:
+   ```bash
+   node -e "
+   const { chromium } = require('@playwright/test');
+   (async () => {
+     const b = await chromium.launch();
+     const p = await b.newPage();
+     p.on('pageerror', e => console.log('PAGE ERROR:', e.message));
+     await p.goto('http://localhost:5173/register');
+     await p.waitForTimeout(2000);
+     console.log('email inputs:', await p.locator('input[type=email]').count());
+     await b.close();
+   })();
+   "
+   ```
+4. `workers: 1` is required (set in `playwright.config.ts`) — multiple workers cause STOMP timing failures and ID collisions. Never remove it.
+
 ## Pre-Written Tests — Do Not Modify
 
 Tests for every slice are pre-written in `src/test/kotlin/com/example/chat/`.
@@ -1067,4 +1102,70 @@ const [roomsOpen, setRoomsOpen] = useState(!inRoom);
 // RIGHT — useEffect collapses/expands on navigation
 const [roomsOpen, setRoomsOpen] = useState(!inRoom);
 useEffect(() => { setRoomsOpen(!inRoom); }, [inRoom]);
+```
+
+### SockJS Requires `global` Polyfill in Vite — Add `define: { global: "globalThis" }` to vite.config.ts
+SockJS references `global` (a Node.js global) at module load time. In a browser bundle this throws `ReferenceError: global is not defined` which crashes the entire React app silently — the page loads a blank body with no error visible in the UI. Add the polyfill to the Vite config:
+
+```ts
+// vite.config.ts
+export default defineConfig({
+  define: {
+    global: "globalThis",  // required for SockJS
+  },
+  // ...
+});
+```
+
+Without this, all routes render blank and Playwright tests fail with "waiting for locator(...)" timeouts — not an obvious connection to SockJS.
+
+### Backend `UserSummary` Uses `id`, Not `userId` — Frontend Types Must Match Exactly
+The backend `UserSummary` DTO has field `id: Long` (not `userId`). The frontend `Message.sender` type must mirror this. If typed as `{ userId: number }`, `message.sender?.userId` is always `undefined` — `isMine` is always false, the Edit button never renders, and delete permissions are wrong for all users.
+
+```typescript
+// WRONG — sender.userId is always undefined; isMine is always false
+interface Message {
+  sender: { userId: number; username: string } | null;
+}
+
+// RIGHT — matches UserSummary DTO
+interface Message {
+  sender: { id: number; username: string } | null;
+}
+// Usage in component:
+const isMine = message.sender?.id === user?.userId;
+```
+
+### React State Hover Is Unreliable in Playwright Headless — Use CSS `group-hover`
+Playwright's `.hover()` triggers CSS `:hover` pseudo-class but does NOT reliably fire React `onMouseEnter` / `onMouseLeave` events in headless Chromium under load. If action buttons (Reply, Edit, Delete) are hidden via `{hover && ...}` React state, Playwright tests that hover and then click the button fail intermittently. Switch to Tailwind's CSS-based approach — the parent div already has `group` class:
+
+```tsx
+// WRONG — React state hover; unreliable in Playwright headless
+const [hover, setHover] = useState(false);
+<div onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}>
+  {hover && <div className="... flex">...</div>}
+</div>
+
+// RIGHT — CSS group-hover; reliable in all Playwright modes
+<div className="group ...">
+  <div className="hidden group-hover:flex ...">...</div>
+</div>
+```
+
+### Playwright E2E Tests Must Run With `workers: 1` for STOMP-Dependent Tests
+Running E2E tests with multiple Playwright workers (the default) puts parallel load on the backend, which causes STOMP WebSocket connections to establish slowly. A test that sends a STOMP message and then immediately checks for the echoed response can fail with "element not found" when the STOMP subscription races with the send. Additionally, two workers starting at the same millisecond will generate identical `Date.now()`-based unique IDs (causing duplicate email errors). Fix both by setting `workers: 1` in `playwright.config.ts` and using `crypto.randomBytes` in `uniqueUser()`:
+
+```ts
+// playwright.config.ts
+export default defineConfig({
+  workers: 1,  // serial execution — prevents STOMP timing races and ID collisions
+  // ...
+});
+
+// e2e/helpers.ts
+import crypto from "crypto";
+export function uniqueUser() {
+  const id = `${Date.now()}${crypto.randomBytes(3).toString("hex")}`;
+  return { email: `testuser${id}@example.com`, username: `tu${id}`, password: "TestPass123!" };
+}
 ```

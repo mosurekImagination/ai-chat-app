@@ -6,6 +6,9 @@ import tsconfigPaths from "vite-tsconfig-paths";
 import path from "path";
 
 export default defineConfig({
+  define: {
+    global: "globalThis",
+  },
   plugins: [
     TanStackRouterVite({ routesDirectory: "src/routes", generatedRouteTree: "src/routeTree.gen.ts" }),
     react(),

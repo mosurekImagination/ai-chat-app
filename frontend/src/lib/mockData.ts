@@ -114,7 +114,7 @@ export const messages: Record<number, Message[]> = {
     {
       id: 101,
       roomId: 1,
-      sender: { userId: 2, username: "bob" },
+      sender: { id: 2, username: "bob" },
       content: "Morning everyone — anyone up for coffee?",
       parentMessage: null,
       attachments: [],
@@ -126,11 +126,11 @@ export const messages: Record<number, Message[]> = {
     {
       id: 102,
       roomId: 1,
-      sender: { userId: 3, username: "carol" },
+      sender: { id: 3, username: "carol" },
       content: "Sure, give me 10.",
       parentMessage: {
         id: 101,
-        sender: { userId: 2, username: "bob" },
+        sender: { id: 2, username: "bob" },
         content: "Morning everyone — anyone up for coffee?",
       },
       attachments: [],
@@ -142,7 +142,7 @@ export const messages: Record<number, Message[]> = {
     {
       id: 103,
       roomId: 1,
-      sender: { userId: 1, username: "alice" },
+      sender: { id: 1, username: "alice" },
       content: "On my way ☕",
       parentMessage: null,
       attachments: [],
@@ -154,7 +154,7 @@ export const messages: Record<number, Message[]> = {
     {
       id: 104,
       roomId: 1,
-      sender: { userId: 2, username: "bob" },
+      sender: { id: 2, username: "bob" },
       content: null,
       parentMessage: null,
       attachments: [],
@@ -166,7 +166,7 @@ export const messages: Record<number, Message[]> = {
     {
       id: 105,
       roomId: 1,
-      sender: { userId: 3, username: "carol" },
+      sender: { id: 3, username: "carol" },
       content: "Here's the agenda for today",
       parentMessage: null,
       attachments: [
@@ -185,7 +185,7 @@ export const messages: Record<number, Message[]> = {
     {
       id: 106,
       roomId: 1,
-      sender: { userId: 1, username: "alice" },
+      sender: { id: 1, username: "alice" },
       content: "Quick mockup of the landing hero — thoughts?",
       parentMessage: null,
       attachments: [
@@ -206,7 +206,7 @@ export const messages: Record<number, Message[]> = {
     {
       id: 201,
       roomId: 2,
-      sender: { userId: 2, username: "bob" },
+      sender: { id: 2, username: "bob" },
       content: "Anyone watching the game tonight?",
       parentMessage: null,
       attachments: [],
@@ -218,7 +218,7 @@ export const messages: Record<number, Message[]> = {
     {
       id: 202,
       roomId: 2,
-      sender: { userId: 1, username: "alice" },
+      sender: { id: 1, username: "alice" },
       content: "Maybe — what time?",
       parentMessage: null,
       attachments: [],
@@ -233,7 +233,7 @@ export const messages: Record<number, Message[]> = {
     {
       id: 401,
       roomId: 4,
-      sender: { userId: 2, username: "bob" },
+      sender: { id: 2, username: "bob" },
       content: "hey, got a sec?",
       parentMessage: null,
       attachments: [],
@@ -245,7 +245,7 @@ export const messages: Record<number, Message[]> = {
     {
       id: 402,
       roomId: 4,
-      sender: { userId: 1, username: "alice" },
+      sender: { id: 1, username: "alice" },
       content: "yeah what's up",
       parentMessage: null,
       attachments: [],

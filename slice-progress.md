@@ -15,6 +15,13 @@ Update at every slice commit. Read this file first after any context reset.
 | 9 | ✅ | — | password reset + change-password |
 | 10 | ✅ | — | unread counts + notifications |
 | 11 | ⬜ | — | React UI |
+| F1 | ✅ | — | frontend scaffold (strip TanStack Start, vite config, nginx, Dockerfile) |
+| F2 | ✅ | 692a56d | auth — register, login, logout, password reset, AuthContext, 12 E2E tests pass |
+| F3 | ✅ | c2fdc20 | layout + room list (sidebar, catalog, create/join, members) — 12 E2E pass |
+| F4 | ✅ | — | STOMP messaging — send/edit/delete/reply, file upload, infinite scroll — 14 E2E pass |
+| F5 | ⬜ | — | presence, notifications, unread counts |
+| F6 | ⬜ | — | room management modal |
+| F7 | ⬜ | — | friends, DMs, account settings, sessions |
 
 Legend: ✅ done · 🔄 in progress · ⬜ not started · ❌ blocked
 

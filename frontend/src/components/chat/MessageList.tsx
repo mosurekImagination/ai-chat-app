@@ -8,6 +8,9 @@ import type { Message } from "@/lib/types";
 interface MessageListProps {
   messages: Message[];
   onReply: (m: Message) => void;
+  onEdit?: (messageId: number, newContent: string) => void;
+  onDelete?: (messageId: number) => void;
+  isAdmin?: boolean;
   /** Async loader for older messages. Resolve with the page (oldest-first). Resolve `[]` when nothing more. */
   loadOlder?: (beforeId: number) => Promise<Message[]>;
   /** Called once when the user enters the room — used to clear the unread cursor. */
@@ -27,7 +30,7 @@ function formatDay(iso: string) {
 
 const NEAR_BOTTOM_PX = 20;
 
-export function MessageList({ messages, onReply, loadOlder, onEnter }: MessageListProps) {
+export function MessageList({ messages, onReply, onEdit, onDelete, isAdmin, loadOlder, onEnter }: MessageListProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
   const prevScrollHeightRef = useRef<number | null>(null);
@@ -181,7 +184,7 @@ export function MessageList({ messages, onReply, loadOlder, onEnter }: MessageLi
                   <div className="h-px flex-1 bg-border" />
                 </div>
               )}
-              <MessageItem message={m} onReply={onReply} />
+              <MessageItem message={m} onReply={onReply} onEdit={onEdit} onDelete={onDelete} isAdmin={isAdmin} />
             </div>
           );
         })}

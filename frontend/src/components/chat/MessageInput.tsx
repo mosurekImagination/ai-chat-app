@@ -11,7 +11,8 @@ interface MessageInputProps {
   disabledReason?: string;
   replyingTo: Message | null;
   onCancelReply: () => void;
-  onSend: (content: string) => void;
+  onSend: (content: string, attachmentId?: string) => void;
+  onUploadFile?: (file: File) => Promise<string | undefined>;
 }
 
 export function MessageInput({
@@ -21,12 +22,16 @@ export function MessageInput({
   replyingTo,
   onCancelReply,
   onSend,
+  onUploadFile,
 }: MessageInputProps) {
   const [value, setValue] = useState("");
-  const ref = useRef<HTMLTextAreaElement>(null);
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    if (replyingTo) ref.current?.focus();
+    if (replyingTo) textareaRef.current?.focus();
   }, [replyingTo]);
 
   if (disabled) {
@@ -37,10 +42,36 @@ export function MessageInput({
     );
   }
 
-  const submit = () => {
-    if (!value.trim()) return;
-    onSend(value.trim());
+  const submit = async () => {
+    if (!value.trim() && !pendingFile) return;
+    let attachmentId: string | undefined;
+    if (pendingFile && onUploadFile) {
+      setUploading(true);
+      try {
+        attachmentId = await onUploadFile(pendingFile);
+      } finally {
+        setUploading(false);
+        setPendingFile(null);
+      }
+    }
+    onSend(value.trim(), attachmentId);
     setValue("");
+  };
+
+  const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    for (const item of Array.from(items)) {
+      if (item.type.startsWith("image/")) {
+        e.preventDefault();
+        const file = item.getAsFile();
+        if (file) {
+          const named = new File([file], `paste-${Date.now()}.png`, { type: file.type });
+          setPendingFile(named);
+        }
+        break;
+      }
+    }
   };
 
   return (
@@ -49,7 +80,7 @@ export function MessageInput({
         <div className="flex items-center gap-2 rounded-t-md border border-b-0 border-border bg-input-surface px-3 py-1.5 text-xs">
           <span className="text-muted-foreground">Replying to</span>
           <span className="font-semibold text-primary">
-            {replyingTo.sender?.username ?? "deleted user"}
+            {replyingTo.sender?.username ?? "Deleted User"}
           </span>
           <span className="line-clamp-1 flex-1 text-muted-foreground">
             {replyingTo.content?.slice(0, 80) ?? "—"}
@@ -63,17 +94,47 @@ export function MessageInput({
           </button>
         </div>
       )}
+      {pendingFile && (
+        <div className="flex items-center gap-2 rounded-t-md border border-b-0 border-border bg-input-surface px-3 py-1.5 text-xs">
+          <Paperclip className="h-3.5 w-3.5 text-muted-foreground" />
+          <span className="flex-1 truncate text-muted-foreground">{pendingFile.name}</span>
+          <button
+            onClick={() => setPendingFile(null)}
+            className="rounded p-0.5 text-muted-foreground hover:text-foreground"
+            aria-label="Remove attachment"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
       <div
         className={cn(
           "flex items-end gap-2 rounded-md border border-border bg-input-surface p-2",
-          replyingTo && "rounded-t-none",
+          (replyingTo || pendingFile) && "rounded-t-none",
         )}
       >
-        <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" aria-label="Attach file">
+        <input
+          ref={fileInputRef}
+          type="file"
+          className="hidden"
+          aria-label="Attach file input"
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            if (file) setPendingFile(file);
+            e.target.value = "";
+          }}
+        />
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8 shrink-0"
+          aria-label="Attach file"
+          onClick={() => fileInputRef.current?.click()}
+        >
           <Paperclip className="h-4 w-4" />
         </Button>
         <Textarea
-          ref={ref}
+          ref={textareaRef}
           value={value}
           onChange={(e) => setValue(e.target.value)}
           onKeyDown={(e) => {
@@ -82,6 +143,7 @@ export function MessageInput({
               submit();
             }
           }}
+          onPaste={handlePaste}
           placeholder={`Message ${roomName}`}
           rows={1}
           className="min-h-[36px] max-h-32 resize-none border-0 bg-transparent p-1.5 text-sm shadow-none focus-visible:ring-0"
@@ -93,7 +155,7 @@ export function MessageInput({
           size="icon"
           className="h-8 w-8 shrink-0"
           onClick={submit}
-          disabled={!value.trim()}
+          disabled={(!value.trim() && !pendingFile) || uploading}
           aria-label="Send"
         >
           <Send className="h-4 w-4" />

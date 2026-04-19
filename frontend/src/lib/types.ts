@@ -31,11 +31,11 @@ export interface Attachment {
 export interface Message {
   id: number;
   roomId: number;
-  sender: { userId: number; username: string } | null;
+  sender: { id: number; username: string } | null;
   content: string | null;
   parentMessage: {
     id: number;
-    sender: { userId: number; username: string } | null;
+    sender: { id: number; username: string } | null;
     content: string | null;
   } | null;
   attachments: Attachment[];
