@@ -1261,3 +1261,50 @@ const [friendPrefill, setFriendPrefill] = useState<string | undefined>();
 // MembersPanel button:
 <button onClick={() => onAddFriend(m.username)}>Add friend</button>
 ```
+
+### `@Transactional` + `convertAndSend` at Method End Still Fires BEFORE Commit
+The existing gotcha ("write to DB first, then push the event") shows the right order within the method body, but it is still WRONG if the whole method is `@Transactional`: Spring commits the transaction only after the method returns, so `convertAndSend` called at the very end of the method fires while the transaction is still open. Clients that immediately refetch will see the DB in its pre-commit state. The correct fix is `TransactionSynchronizationManager.registerSynchronization` to defer the send until after commit:
+
+```kotlin
+// WRONG — looks correct (send after deleteById) but both are inside @Transactional;
+// convertAndSend fires before the transaction commits; client refetch sees stale data
+@Transactional
+fun deleteRoom(roomId: Long, userId: Long) {
+    roomRepository.deleteById(roomId)
+    messagingTemplate.convertAndSend("/topic/room.$roomId", RoomEvent("DELETED", roomId)) // pre-commit!
+}
+
+// RIGHT — defer STOMP send to afterCommit callback
+@Transactional
+fun deleteRoom(roomId: Long, userId: Long) {
+    roomRepository.deleteById(roomId)
+    val event = RoomEvent("DELETED", roomId)
+    TransactionSynchronizationManager.registerSynchronization(object : TransactionSynchronization {
+        override fun afterCommit() {
+            messagingTemplate.convertAndSend("/topic/room.$roomId", event)
+        }
+    })
+}
+```
+
+This applies to any `@Transactional` method that also pushes a STOMP notification — the notification must go in `afterCommit()`, not at the bottom of the method body.
+
+### Playwright Multi-Context: Wait for `textarea` Before Sending Across Contexts
+In multi-browser-context Playwright tests, navigating a page to a room (`goto("/rooms/{id}")`) does not guarantee the STOMP subscription for that room is active. The subscription is established asynchronously after the WebSocket connects and the `onConnect` handler fires. If another context sends a message before the first context's subscription is registered, the message is silently missed. Always wait for the input to be ready before proceeding:
+
+```typescript
+// WRONG — p2 may not have subscribed to the room topic yet when p1 sends
+await p2.goto(`/rooms/${roomId}`);
+await p1.fill("textarea", baseline);
+await p1.click('[aria-label="Send"]');
+await expect(p2.locator(`text=${baseline}`)).toBeVisible(); // flaky: times out when STOMP isn't ready
+
+// RIGHT — wait for p2's STOMP subscription (textarea enabled = room subscription active)
+await p2.goto(`/rooms/${roomId}`);
+await expect(p2.locator("textarea")).toBeEnabled({ timeout: 8000 });
+await p1.fill("textarea", baseline);
+await p1.click('[aria-label="Send"]');
+await expect(p2.locator(`text=${baseline}`)).toBeVisible(); // reliable
+```
+
+The `textarea` being enabled is a reliable proxy for the STOMP subscription being active: `MessageInput` stays disabled until `isMember` is true, which requires the initial history load + STOMP connection to complete.

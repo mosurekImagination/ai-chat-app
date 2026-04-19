@@ -52,6 +52,10 @@ export function StompProvider({ children }: { children: React.ReactNode }) {
     const client = new Client({
       webSocketFactory: () => new SockJS("/ws"),
       reconnectDelay: 5000,
+      // Heartbeats allow faster detection of a dead connection (e.g., after network drop).
+      // Server sends a heartbeat every 10s; client sends every 10s.
+      heartbeatIncoming: 10000,
+      heartbeatOutgoing: 10000,
       onConnect: () => {
         setConnected(true);
 
@@ -95,20 +99,55 @@ export function StompProvider({ children }: { children: React.ReactNode }) {
     };
   }, [user, queryClient]);
 
-  // Presence heartbeat every 30 s
+  // Presence — event-driven heartbeat (NFR-1).
+  // Activity events throttled to 1 send / 2 s; fire immediately on first event after idle.
+  // Also maintains a 30s fallback timer so the server never times out a truly active user.
   useEffect(() => {
     if (!connected) return;
-    const timer = setInterval(() => {
-      clientRef.current?.publish({ destination: "/app/presence.activity", body: "{}" });
-    }, 30_000);
-    return () => clearInterval(timer);
+    const bc = typeof BroadcastChannel !== "undefined" ? new BroadcastChannel("presence") : null;
+    let lastSent = 0;
+
+    const sendActivity = () => {
+      if (!clientRef.current?.connected) return;
+      const now = Date.now();
+      if (now - lastSent < 2000) return; // throttle to 1 per 2 s
+      lastSent = now;
+      clientRef.current.publish({ destination: "/app/presence.activity", body: "{}" });
+      bc?.postMessage("activity"); // notify other tabs
+    };
+
+    // Listen for activity signals from other tabs — keeps this tab's lastSent fresh
+    // so we don't double-send when another tab is already driving the heartbeat.
+    const onBcMessage = () => { lastSent = Date.now(); };
+    bc?.addEventListener("message", onBcMessage);
+
+    // Event-driven: send on any user interaction
+    document.addEventListener("pointermove", sendActivity, { passive: true });
+    document.addEventListener("keydown", sendActivity, { passive: true });
+    document.addEventListener("click", sendActivity, { passive: true });
+
+    // Fallback timer: ensures heartbeat fires at least every 25 s even if user is active
+    // but events are throttled (edge case where user sits still after throttle window)
+    const timer = setInterval(sendActivity, 25_000);
+
+    return () => {
+      document.removeEventListener("pointermove", sendActivity);
+      document.removeEventListener("keydown", sendActivity);
+      document.removeEventListener("click", sendActivity);
+      clearInterval(timer);
+      bc?.removeEventListener("message", onBcMessage);
+      bc?.close();
+    };
   }, [connected]);
 
-  // AFK when tab becomes hidden
+  // AFK/active on visibility change (NFR-1.2 / NFR-1.3)
   useEffect(() => {
     const handler = () => {
-      if (document.visibilityState === "hidden" && clientRef.current?.connected) {
+      if (!clientRef.current?.connected) return;
+      if (document.visibilityState === "hidden") {
         clientRef.current.publish({ destination: "/app/presence.afk", body: "{}" });
+      } else {
+        clientRef.current.publish({ destination: "/app/presence.activity", body: "{}" });
       }
     };
     document.addEventListener("visibilitychange", handler);

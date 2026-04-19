@@ -7,3 +7,4 @@ class ForbiddenException(val code: String = "FORBIDDEN") : RuntimeException(code
 class ValidationException(val code: String = "INVALID_REQUEST") : RuntimeException(code)
 class FileSizeLimitException : RuntimeException("FILE_TOO_LARGE")
 class UnsupportedMimeTypeException : RuntimeException("UNSUPPORTED_MIME_TYPE")
+class RateLimitedException : RuntimeException("RATE_LIMITED")

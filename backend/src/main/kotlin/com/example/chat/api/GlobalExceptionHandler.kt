@@ -4,6 +4,7 @@ import com.example.chat.domain.exception.ConflictException
 import com.example.chat.domain.exception.EntityNotFoundException
 import com.example.chat.domain.exception.FileSizeLimitException
 import com.example.chat.domain.exception.ForbiddenException
+import com.example.chat.domain.exception.RateLimitedException
 import com.example.chat.domain.exception.UnauthorizedException
 import com.example.chat.domain.exception.UnsupportedMimeTypeException
 import com.example.chat.domain.exception.ValidationException
@@ -47,6 +48,10 @@ class GlobalExceptionHandler {
     @ExceptionHandler(UnsupportedMimeTypeException::class)
     fun handleMimeType(e: UnsupportedMimeTypeException): ResponseEntity<Map<String, String>> =
         ResponseEntity.status(HttpStatus.UNSUPPORTED_MEDIA_TYPE).body(mapOf("error" to "UNSUPPORTED_MIME_TYPE"))
+
+    @ExceptionHandler(RateLimitedException::class)
+    fun handleRateLimit(e: RateLimitedException): ResponseEntity<Map<String, String>> =
+        ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).body(mapOf("error" to "RATE_LIMITED"))
 
     @ExceptionHandler(org.springframework.web.multipart.MaxUploadSizeExceededException::class)
     fun handleMultipartSize(e: org.springframework.web.multipart.MaxUploadSizeExceededException): ResponseEntity<Map<String, String>> =

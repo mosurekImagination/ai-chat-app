@@ -1,6 +1,8 @@
 package com.example.chat.api
 
 import com.example.chat.config.ChatPrincipal
+import com.example.chat.config.LoginRateLimiter
+import com.example.chat.domain.exception.RateLimitedException
 import com.example.chat.domain.exception.UnauthorizedException
 import com.example.chat.domain.user.UserService
 import com.example.chat.dto.AuthResponse
@@ -19,7 +21,7 @@ import org.springframework.web.bind.annotation.*
 
 @RestController
 @RequestMapping("/api/auth")
-class AuthController(private val userService: UserService) {
+class AuthController(private val userService: UserService, private val loginRateLimiter: LoginRateLimiter) {
 
     @PostMapping("/register")
     @ResponseStatus(HttpStatus.CREATED)
@@ -34,7 +36,11 @@ class AuthController(private val userService: UserService) {
         @Valid @RequestBody req: LoginRequest,
         request: HttpServletRequest,
         response: HttpServletResponse,
-    ): AuthResponse = userService.login(req.email, req.password, req.keepSignedIn, request, response)
+    ): AuthResponse {
+        val ip = request.getHeader("X-Real-IP") ?: request.remoteAddr
+        if (!loginRateLimiter.tryConsume(ip)) throw RateLimitedException()
+        return userService.login(req.email, req.password, req.keepSignedIn, request, response)
+    }
 
     @PostMapping("/logout")
     fun logout(authentication: Authentication, response: HttpServletResponse) {

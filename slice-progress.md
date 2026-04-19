@@ -21,7 +21,8 @@ Update at every slice commit. Read this file first after any context reset.
 | F4 | ✅ | — | STOMP messaging — send/edit/delete/reply, file upload, infinite scroll — 14 E2E pass |
 | F5 | ✅ | — | presence, notifications, unread counts — 6 E2E pass |
 | F6 | ✅ | ec23aef | room management — ban/unban, roles, invitations, delete, leave, admin msg delete — 11 E2E pass |
-| F7 | ⬜ | — | friends, DMs, account settings, sessions |
+| F7 | ✅ | 27ef7ad | friends, DMs, sessions, account settings — 12 E2E pass (67 total) |
+| NF1–NF6 | ✅ | — | non-functional: presence accuracy, gap recovery, large history, cleanup jobs, N+1 fix, rate limiting — 71 E2E pass |
 
 Legend: ✅ done · 🔄 in progress · ⬜ not started · ❌ blocked
 

@@ -15,10 +15,14 @@ class MessageController(private val messageService: MessageService) {
     fun getHistory(
         @PathVariable roomId: Long,
         @RequestParam before: Long?,
+        @RequestParam after: Long?,
         @RequestParam(defaultValue = "50") limit: Int,
         auth: Authentication,
     ): ResponseEntity<List<MessageResponse>> {
         val userId = (auth.principal as ChatPrincipal).userId
-        return ResponseEntity.ok(messageService.getHistory(roomId, userId, before, limit))
+        return if (after != null)
+            ResponseEntity.ok(messageService.getHistoryAfter(roomId, userId, after, limit))
+        else
+            ResponseEntity.ok(messageService.getHistory(roomId, userId, before, limit))
     }
 }

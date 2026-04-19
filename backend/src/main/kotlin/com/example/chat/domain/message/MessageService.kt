@@ -134,11 +134,39 @@ class MessageService(
         // Upsert read cursor to mark all current messages as read (per api-definition.yaml spec)
         if (before == null) roomReadCursorRepository.upsertReadCursor(roomId, userId)
 
-        return rows.map { toResponse(it) }
+        // Batch-load all attachments for this page in a single query (avoid N+1)
+        val messageIds = rows.map { it.getId() }
+        val attachmentsByMessageId = if (messageIds.isNotEmpty())
+            attachmentRepository.findAllByMessageIdIn(messageIds).groupBy { it.messageId ?: 0L }
+        else emptyMap()
+
+        return rows.map { toResponse(it, attachmentsMap = attachmentsByMessageId) }
     }
 
-    private fun toResponse(p: MessageHistoryProjection, tempId: String? = null): MessageResponse {
-        val attachments = attachmentRepository.findAllByMessageIdIn(listOf(p.getId()))
+    @Transactional
+    fun getHistoryAfter(roomId: Long, userId: Long, after: Long, limit: Int): List<MessageResponse> {
+        roomRepository.findById(roomId).orElseThrow { EntityNotFoundException() }
+        if (roomBanRepository.existsByRoomIdAndUserId(roomId, userId)) throw ForbiddenException("ROOM_BANNED")
+        if (!roomMemberRepository.existsByRoomIdAndUserId(roomId, userId)) throw ForbiddenException("NOT_MEMBER")
+
+        val clampedLimit = limit.coerceIn(1, 100)
+        val rows = messageRepository.findHistoryAfter(roomId, after, clampedLimit)
+
+        val messageIds = rows.map { it.getId() }
+        val attachmentsByMessageId = if (messageIds.isNotEmpty())
+            attachmentRepository.findAllByMessageIdIn(messageIds).groupBy { it.messageId ?: 0L }
+        else emptyMap()
+
+        return rows.map { toResponse(it, attachmentsMap = attachmentsByMessageId) }
+    }
+
+    private fun toResponse(
+        p: MessageHistoryProjection,
+        tempId: String? = null,
+        attachmentsMap: Map<Long, List<Attachment>>? = null,
+    ): MessageResponse {
+        val attachments = (attachmentsMap?.get(p.getId())
+            ?: attachmentRepository.findAllByMessageIdIn(listOf(p.getId())))
             .map { AttachmentSummary(id = it.id, originalFilename = it.originalFilename, mimeType = it.mimeType, sizeBytes = it.sizeBytes, comment = it.comment) }
 
         val sender = if (p.getSenderId() != null && p.getSenderUsername() != null)

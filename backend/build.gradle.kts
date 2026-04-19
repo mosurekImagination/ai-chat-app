@@ -41,6 +41,9 @@ dependencies {
     // Apache Tika — MIME type validation from magic bytes
     implementation("org.apache.tika:tika-core:2.9.2")
 
+    // Bucket4j — in-memory rate limiting (login brute-force protection)
+    implementation("com.bucket4j:bucket4j-core:8.10.1")
+
     // Database
     implementation("org.flywaydb:flyway-core")
     runtimeOnly("org.postgresql:postgresql")

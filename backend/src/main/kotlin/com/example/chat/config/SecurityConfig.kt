@@ -35,6 +35,8 @@ class SecurityConfig {
                         "/api/auth/refresh",
                         "/api/auth/forgot-password",
                         "/api/auth/reset-password",
+                        "/api/admin/**",
+                        "/api/dev/**",
                         "/actuator/health",
                         "/ws/**",
                     ).permitAll()

@@ -1,5 +1,5 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Hash, Lock, Info, UserPlus2, MessageSquare, LogOut } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -26,7 +26,7 @@ function ChatPage() {
   const { id } = Route.useParams();
   const roomId = Number(id);
   const { user } = useAuth();
-  const { subscribe, send } = useStormp();
+  const { subscribe, send, connected } = useStormp();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
@@ -60,16 +60,48 @@ function ChatPage() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [replyingTo, setReplyingTo] = useState<Message | null>(null);
   const [bannedFromRoom, setBannedFromRoom] = useState(false);
+  const [reconnectBanner, setReconnectBanner] = useState(false);
+
+  // Track highest message ID seen — used for gap recovery on STOMP reconnect
+  const highWatermarkRef = useRef<number>(0);
+  const prevConnectedRef = useRef<boolean>(false);
 
   // Load initial history; read cursor upserted by the API → refresh unread count
   useEffect(() => {
     if (!room) return;
     messageService.getHistory(roomId).then((msgs) => {
-      // API returns newest-first; reverse to oldest-first for display
-      setMessages([...msgs].reverse());
+      const chronological = [...msgs].reverse();
+      setMessages(chronological);
+      if (chronological.length > 0) {
+        highWatermarkRef.current = Math.max(...chronological.map((m) => m.id));
+      }
       queryClient.invalidateQueries({ queryKey: ["myRooms"] });
     }).catch(() => {});
   }, [roomId, room, queryClient]);
+
+  // Gap recovery: on STOMP reconnect, fetch any messages missed during the disconnection window
+  useEffect(() => {
+    const wasConnected = prevConnectedRef.current;
+    prevConnectedRef.current = connected;
+    const isReconnect = connected && !wasConnected && highWatermarkRef.current > 0;
+    if (!isReconnect) return;
+
+    setReconnectBanner(true);
+    messageService.getHistory(roomId, { after: highWatermarkRef.current, limit: 100 })
+      .then((gapMsgs) => {
+        if (gapMsgs.length > 0) {
+          setMessages((prev) => {
+            const existingIds = new Set(prev.map((m) => m.id));
+            const newMsgs = gapMsgs.filter((m) => !existingIds.has(m.id));
+            if (newMsgs.length === 0) return prev;
+            highWatermarkRef.current = Math.max(highWatermarkRef.current, ...newMsgs.map((m) => m.id));
+            return [...prev, ...newMsgs];
+          });
+        }
+      })
+      .catch(() => {})
+      .finally(() => setTimeout(() => setReconnectBanner(false), 3000));
+  }, [connected, roomId]);
 
   // Subscribe to room STOMP topic
   useEffect(() => {
@@ -79,6 +111,7 @@ function ChatPage() {
       if (event.message) {
         const msg: Message = event.message;
         if (event.type === "NEW") {
+          highWatermarkRef.current = Math.max(highWatermarkRef.current, msg.id);
           setMessages((prev) => {
             // Deduplicate: if same tempId already exists, replace it
             if (msg.tempId) {
@@ -173,6 +206,11 @@ function ChatPage() {
 
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col">
+      {reconnectBanner && (
+        <div className="shrink-0 bg-primary/10 px-4 py-1 text-center text-xs text-primary" aria-label="reconnect-banner">
+          Reconnected — checking for missed messages…
+        </div>
+      )}
       <header className="flex h-14 shrink-0 items-center justify-between border-b border-border bg-chat px-4">
         <div className="flex min-w-0 items-center gap-2">
           <VisibilityIcon className="h-4 w-4 shrink-0 text-muted-foreground" />

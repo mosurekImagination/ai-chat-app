@@ -20,6 +20,8 @@ import com.example.chat.dto.UserSummary
 import org.springframework.messaging.simp.SimpMessagingTemplate
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
+import org.springframework.transaction.support.TransactionSynchronization
+import org.springframework.transaction.support.TransactionSynchronizationManager
 
 @Service
 class RoomService(
@@ -117,8 +119,13 @@ class RoomService(
         }
         fileStorageService.deleteRoom(roomId)
         roomRepository.deleteById(roomId)
-        // Notify subscribers AFTER deletion so any triggered refetch sees the room gone
-        messagingTemplate.convertAndSend("/topic/room.$roomId", RoomEvent("DELETED", roomId))
+        // Send STOMP notification AFTER tx commits — triggered refetch must see the room gone
+        val event = RoomEvent("DELETED", roomId)
+        TransactionSynchronizationManager.registerSynchronization(object : TransactionSynchronization {
+            override fun afterCommit() {
+                messagingTemplate.convertAndSend("/topic/room.$roomId", event)
+            }
+        })
     }
 
     fun getUnreadCount(roomId: Long, userId: Long): Long {

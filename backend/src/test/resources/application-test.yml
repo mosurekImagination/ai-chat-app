@@ -8,6 +8,9 @@ spring:
 
 app:
   uploads-dir: /tmp/chat-test-uploads
+  # Set very high in tests so general test suites don't exhaust the rate limiter.
+  # NF6RateLimitTest overrides this to 10 via @TestPropertySource.
+  login-rate-limit: 10000
 
 chat:
   presence:
