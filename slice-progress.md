@@ -19,8 +19,8 @@ Update at every slice commit. Read this file first after any context reset.
 | F2 | ✅ | 692a56d | auth — register, login, logout, password reset, AuthContext, 12 E2E tests pass |
 | F3 | ✅ | c2fdc20 | layout + room list (sidebar, catalog, create/join, members) — 12 E2E pass |
 | F4 | ✅ | — | STOMP messaging — send/edit/delete/reply, file upload, infinite scroll — 14 E2E pass |
-| F5 | ⬜ | — | presence, notifications, unread counts |
-| F6 | ⬜ | — | room management modal |
+| F5 | ✅ | — | presence, notifications, unread counts — 6 E2E pass |
+| F6 | ✅ | ec23aef | room management — ban/unban, roles, invitations, delete, leave, admin msg delete — 11 E2E pass |
 | F7 | ⬜ | — | friends, DMs, account settings, sessions |
 
 Legend: ✅ done · 🔄 in progress · ⬜ not started · ❌ blocked

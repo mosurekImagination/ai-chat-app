@@ -26,6 +26,7 @@ function RoomsLayout() {
 
   const [createOpen, setCreateOpen] = useState(false);
   const [friendOpen, setFriendOpen] = useState(false);
+  const [friendPrefill, setFriendPrefill] = useState<string | undefined>(undefined);
   const [sessionsOpen, setSessionsOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
   const [manageOpen, setManageOpen] = useState(false);
@@ -46,7 +47,7 @@ function RoomsLayout() {
       <Topbar
         onOpenSessions={() => setSessionsOpen(true)}
         onOpenAccount={() => setAccountOpen(true)}
-        onOpenFriendRequest={() => setFriendOpen(true)}
+        onOpenFriendRequest={() => { setFriendPrefill(undefined); setFriendOpen(true); }}
       />
       <div className="flex min-h-0 flex-1">
         <main className="flex min-w-0 flex-1 flex-col bg-chat">
@@ -54,13 +55,17 @@ function RoomsLayout() {
         </main>
         <RightSidebar
           onCreateRoom={() => setCreateOpen(true)}
-          onAddFriend={() => setFriendOpen(true)}
+          onAddFriend={(username) => { setFriendPrefill(username); setFriendOpen(true); }}
           onManageRoom={() => setManageOpen(true)}
         />
       </div>
 
       <CreateRoomModal open={createOpen} onOpenChange={setCreateOpen} />
-      <SendFriendRequestModal open={friendOpen} onOpenChange={setFriendOpen} />
+      <SendFriendRequestModal
+        open={friendOpen}
+        onOpenChange={(v) => { setFriendOpen(v); if (!v) setFriendPrefill(undefined); }}
+        prefillUsername={friendPrefill}
+      />
       <SessionsModal open={sessionsOpen} onOpenChange={setSessionsOpen} />
       <AccountSettingsModal open={accountOpen} onOpenChange={setAccountOpen} />
       <ManageRoomModal

@@ -3,6 +3,8 @@ package com.example.chat.domain.user
 import com.example.chat.config.JwtProperties
 import com.example.chat.config.JwtUtil
 import com.example.chat.domain.exception.ConflictException
+import com.example.chat.domain.exception.EntityNotFoundException
+import com.example.chat.domain.exception.ForbiddenException
 import com.example.chat.domain.exception.UnauthorizedException
 import com.example.chat.domain.exception.ValidationException
 import com.example.chat.dto.AuthResponse
@@ -151,6 +153,19 @@ class UserService(
                 current = s.id == currentSessionId,
             )
         }
+
+    @Transactional
+    fun revokeSession(sessionId: Long, requestingUserId: Long) {
+        val session = sessionRepository.findById(sessionId).orElseThrow { EntityNotFoundException() }
+        if (session.userId != requestingUserId) throw ForbiddenException("FORBIDDEN")
+        sessionRepository.delete(session)
+    }
+
+    @Transactional
+    fun deleteAccount(userId: Long, response: HttpServletResponse) {
+        userRepository.deleteById(userId)
+        clearCookies(response)
+    }
 
     private fun createSessionAndSetCookies(
         user: User,

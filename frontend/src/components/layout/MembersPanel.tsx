@@ -1,4 +1,4 @@
-import { Settings2 } from "lucide-react";
+import { Settings2, UserPlus } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { PresenceDot } from "@/components/common/PresenceDot";
@@ -10,9 +10,10 @@ import { useStormp } from "@/contexts/StompContext";
 interface MembersPanelProps {
   roomId: number;
   onManage: () => void;
+  onAddFriend?: (username: string) => void;
 }
 
-export function MembersPanel({ roomId, onManage }: MembersPanelProps) {
+export function MembersPanel({ roomId, onManage, onAddFriend }: MembersPanelProps) {
   const { user } = useAuth();
   const { getPresence } = useStormp();
 
@@ -60,7 +61,7 @@ export function MembersPanel({ roomId, onManage }: MembersPanelProps) {
           members.map((m) => (
             <div
               key={m.userId}
-              className="flex items-center gap-2 rounded px-2 py-1.5 text-sm transition-colors hover:bg-accent"
+              className="group flex items-center gap-2 rounded px-2 py-1.5 text-sm transition-colors hover:bg-accent"
             >
               <PresenceDot status={getPresence(m.userId)} />
               <span className="flex-1 truncate">{m.username}</span>
@@ -71,6 +72,16 @@ export function MembersPanel({ roomId, onManage }: MembersPanelProps) {
                 >
                   Admin
                 </Badge>
+              )}
+              {m.userId !== user?.userId && onAddFriend && (
+                <button
+                  className="hidden rounded p-0.5 text-muted-foreground hover:bg-primary/20 hover:text-primary group-hover:block"
+                  aria-label={`Add friend ${m.username}`}
+                  title="Send friend request"
+                  onClick={() => onAddFriend(m.username)}
+                >
+                  <UserPlus className="h-3.5 w-3.5" />
+                </button>
               )}
             </div>
           ))

@@ -1229,3 +1229,35 @@ await expect(row.locator('button:has-text("Ban")')).toBeVisible(); // fails
 const row = dialog.locator("div.rounded-md").filter({ hasText: username });
 await expect(row.locator('button:has-text("Ban")')).toBeVisible(); // correct
 ```
+
+### `useState` Initial Value Is Frozen — Use `useEffect` to Sync Prop-Driven State
+`useState(prop)` only captures the prop value on the component's **first mount**. If a Dialog stays mounted (just hidden) and you pass a new prop value when reopening it, the state is still the original value. Use `useEffect` keyed on the `open` flag to sync the state each time the modal opens:
+
+```tsx
+// WRONG — prefillUsername changes between opens, but state stays as the first value
+const [username, setUsername] = useState(prefillUsername ?? "");
+
+// RIGHT — sync on every open
+const [username, setUsername] = useState(prefillUsername ?? "");
+useEffect(() => { if (open) setUsername(prefillUsername ?? ""); }, [open]);
+```
+
+This applies to any Dialog/Sheet/Popover that is kept mounted (shadcn/ui default) and whose initial form state must reflect a prop passed at open time.
+
+### Multiple Instances of the Same Modal Create Duplicate DOM `id` Attributes
+If a modal component is rendered in two places simultaneously (e.g., root layout `<SendFriendRequestModal>` plus a nested `<SendFriendRequestModal>` inside a panel), both are mounted in the DOM even when one is closed. `<Input id="friend-username" />` appears twice → Playwright's strict mode throws "resolved to 2 elements" and tests target the wrong (empty) instance. Fix: render each modal exactly once at the root layout level; pass callbacks with any pre-fill state down as props rather than embedding a second modal instance deeper in the tree.
+
+```tsx
+// WRONG — two SendFriendRequestModal instances in the DOM simultaneously
+// rooms.tsx:   <SendFriendRequestModal open={friendOpen} ... />
+// MembersPanel: <SendFriendRequestModal open={targetNotNull} prefill={target} />
+
+// RIGHT — one instance at root, pass callback with prefill
+// rooms.tsx:
+const [friendPrefill, setFriendPrefill] = useState<string | undefined>();
+// <RightSidebar onAddFriend={(u) => { setFriendPrefill(u); setFriendOpen(true); }} />
+// <SendFriendRequestModal open={friendOpen} prefillUsername={friendPrefill} />
+
+// MembersPanel button:
+<button onClick={() => onAddFriend(m.username)}>Add friend</button>
+```

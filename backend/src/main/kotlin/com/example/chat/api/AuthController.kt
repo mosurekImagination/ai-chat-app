@@ -78,4 +78,11 @@ class AuthController(private val userService: UserService) {
         val principal = authentication.principal as ChatPrincipal
         userService.changePassword(principal.userId, req.currentPassword, req.newPassword)
     }
+
+    @DeleteMapping("/sessions/{id}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    fun revokeSession(@PathVariable id: Long, authentication: Authentication) {
+        val principal = authentication.principal as ChatPrincipal
+        userService.revokeSession(id, principal.userId)
+    }
 }

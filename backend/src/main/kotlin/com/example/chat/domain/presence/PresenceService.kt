@@ -1,6 +1,7 @@
 package com.example.chat.domain.presence
 
 import com.example.chat.domain.friend.FriendshipRepository
+import com.example.chat.domain.room.RoomMemberRepository
 import com.example.chat.domain.user.UserRepository
 import com.example.chat.dto.FriendResponse
 import com.example.chat.dto.PresenceEvent
@@ -16,6 +17,7 @@ class PresenceService(
     private val messagingTemplate: SimpMessagingTemplate,
     private val friendshipRepository: FriendshipRepository,
     private val userRepository: UserRepository,
+    private val roomMemberRepository: RoomMemberRepository,
 ) {
     // userId → (stompSessionId → lastActivityAt)
     val presenceMap = ConcurrentHashMap<Long, ConcurrentHashMap<String, Instant>>()
@@ -101,7 +103,14 @@ class PresenceService(
         if (friendIds.isEmpty()) return emptyList()
         val usersById = userRepository.findAllById(friendIds).associateBy { it.id }
         return friendIds.mapNotNull { friendId ->
-            usersById[friendId]?.let { FriendResponse(friendId, it.username, getStatus(friendId)) }
+            usersById[friendId]?.let {
+                FriendResponse(
+                    userId = friendId,
+                    username = it.username,
+                    presence = getStatus(friendId),
+                    dmRoomId = roomMemberRepository.findDmRoomId(userId, friendId),
+                )
+            }
         }
     }
 

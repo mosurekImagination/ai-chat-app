@@ -1,3 +1,4 @@
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Dialog,
   DialogContent,
@@ -7,7 +8,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { sessions } from "@/lib/mockData";
+import { authService } from "@/lib/services/authService";
 
 interface SessionsModalProps {
   open: boolean;
@@ -15,6 +16,19 @@ interface SessionsModalProps {
 }
 
 export function SessionsModal({ open, onOpenChange }: SessionsModalProps) {
+  const queryClient = useQueryClient();
+
+  const { data: sessions = [] } = useQuery({
+    queryKey: ["sessions"],
+    queryFn: authService.getSessions,
+    enabled: open,
+  });
+
+  const revokeMutation = useMutation({
+    mutationFn: (id: number) => authService.revokeSession(id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["sessions"] }),
+  });
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-lg">
@@ -32,7 +46,7 @@ export function SessionsModal({ open, onOpenChange }: SessionsModalProps) {
             >
               <div>
                 <div className="flex items-center gap-2">
-                  <span className="text-sm font-medium">{s.browserInfo}</span>
+                  <span className="text-sm font-medium">{s.browserInfo ?? "Unknown browser"}</span>
                   {s.current && (
                     <Badge className="bg-success/20 text-success border-success/40" variant="outline">
                       Current
@@ -44,7 +58,13 @@ export function SessionsModal({ open, onOpenChange }: SessionsModalProps) {
                 </div>
               </div>
               {!s.current && (
-                <Button size="sm" variant="outline">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => revokeMutation.mutate(s.id)}
+                  disabled={revokeMutation.isPending}
+                  aria-label={`Revoke session ${s.id}`}
+                >
                   Revoke
                 </Button>
               )}

@@ -4,6 +4,7 @@ export interface FriendResponse {
   userId: number;
   username: string;
   presence: string;
+  dmRoomId: number | null;
 }
 
 export interface FriendRequestItem {
@@ -25,4 +26,8 @@ export const friendService = {
 
   respond: (id: number, action: "ACCEPT" | "REJECT") =>
     api.patch<FriendRequestItem>(`/api/friends/requests/${id}`, { action }),
+
+  removeFriend: (friendId: number) => api.delete<void>(`/api/friends/${friendId}`),
+
+  banUser: (userId: number) => api.post<void>(`/api/users/${userId}/ban`),
 };

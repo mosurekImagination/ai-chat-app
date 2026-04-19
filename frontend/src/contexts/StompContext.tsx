@@ -66,10 +66,17 @@ export function StompProvider({ children }: { children: React.ReactNode }) {
           setPresenceMap((prev) => ({ ...prev, [event.userId]: event.status }));
         });
 
-        // Notification side-effects: refresh unread counts on message notifications
+        // Notification side-effects
         client.subscribe("/user/queue/notifications", (frame) => {
           const event: { type: string } = JSON.parse(frame.body);
           if (event.type === "MENTION" || event.type === "DM_MESSAGE") {
+            queryClient.invalidateQueries({ queryKey: ["myRooms"] });
+          }
+          if (event.type === "FRIEND_REQUEST" || event.type === "FRIEND_ACCEPTED") {
+            queryClient.invalidateQueries({ queryKey: ["pendingRequests"] });
+            queryClient.invalidateQueries({ queryKey: ["friends"] });
+          }
+          if (event.type === "INVITE") {
             queryClient.invalidateQueries({ queryKey: ["myRooms"] });
           }
         });

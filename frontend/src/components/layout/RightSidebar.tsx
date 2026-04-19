@@ -1,7 +1,7 @@
-import { Link, useParams } from "@tanstack/react-router";
+import { Link, useNavigate, useParams } from "@tanstack/react-router";
 import { useState, useEffect, useRef } from "react";
-import { ChevronDown, ChevronRight, Hash, Lock, MessageSquare, Plus, Search, UserPlus } from "lucide-react";
-import { useQuery } from "@tanstack/react-query";
+import { ChevronDown, ChevronRight, Hash, Lock, MessageSquare, Plus, Search, UserPlus, UserMinus, ShieldOff } from "lucide-react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -15,7 +15,7 @@ import { MembersPanel } from "./MembersPanel";
 
 interface RightSidebarProps {
   onCreateRoom: () => void;
-  onAddFriend: () => void;
+  onAddFriend: (username?: string) => void;
   onManageRoom: () => void;
 }
 
@@ -23,6 +23,8 @@ export function RightSidebar({ onCreateRoom, onAddFriend, onManageRoom }: RightS
   const params = useParams({ strict: false });
   const activeRoomId = (params as { id?: string }).id ? Number((params as { id?: string }).id) : null;
   const inRoom = activeRoomId !== null;
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
 
   const [roomsOpen, setRoomsOpen] = useState(!inRoom);
   const [contactsOpen, setContactsOpen] = useState(!inRoom);
@@ -44,6 +46,41 @@ export function RightSidebar({ onCreateRoom, onAddFriend, onManageRoom }: RightS
   const { data: friends = [] } = useQuery({
     queryKey: ["friends"],
     queryFn: friendService.getFriends,
+  });
+
+  const { data: pendingRequests = [] } = useQuery({
+    queryKey: ["pendingRequests"],
+    queryFn: friendService.getPending,
+    refetchInterval: 15_000,
+  });
+
+  // Incoming requests (where current user is the addressee)
+  const incomingRequests = pendingRequests.filter((r) => r.status === "PENDING");
+
+  const respondMutation = useMutation({
+    mutationFn: ({ id, action }: { id: number; action: "ACCEPT" | "REJECT" }) =>
+      friendService.respond(id, action),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["pendingRequests"] });
+      queryClient.invalidateQueries({ queryKey: ["friends"] });
+      queryClient.invalidateQueries({ queryKey: ["myRooms"] });
+      if (data.dmRoomId) {
+        navigate({ to: "/rooms/$id", params: { id: String(data.dmRoomId) } });
+      }
+    },
+  });
+
+  const removeFriendMutation = useMutation({
+    mutationFn: (friendId: number) => friendService.removeFriend(friendId),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["friends"] }),
+  });
+
+  const banFriendMutation = useMutation({
+    mutationFn: (userId: number) => friendService.banUser(userId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["friends"] });
+      queryClient.invalidateQueries({ queryKey: ["myRooms"] });
+    },
   });
 
   // Seed initial presence from API (overwritten by STOMP events)
@@ -75,10 +112,7 @@ export function RightSidebar({ onCreateRoom, onAddFriend, onManageRoom }: RightS
           onToggle={() => setRoomsOpen((v) => !v)}
           action={
             <button
-              onClick={(e) => {
-                e.stopPropagation();
-                onCreateRoom();
-              }}
+              onClick={(e) => { e.stopPropagation(); onCreateRoom(); }}
               className="rounded p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
               aria-label="Create room"
             >
@@ -103,12 +137,7 @@ export function RightSidebar({ onCreateRoom, onAddFriend, onManageRoom }: RightS
                   <EmptyHint text="No public rooms" />
                 ) : (
                   publicRooms.map((r) => (
-                    <RoomLink
-                      key={r.id}
-                      room={r}
-                      icon={<Hash className="h-3.5 w-3.5" />}
-                      active={activeRoomId === r.id}
-                    />
+                    <RoomLink key={r.id} room={r} icon={<Hash className="h-3.5 w-3.5" />} active={activeRoomId === r.id} />
                   ))
                 )}
               </RoomGroup>
@@ -117,12 +146,7 @@ export function RightSidebar({ onCreateRoom, onAddFriend, onManageRoom }: RightS
                   <EmptyHint text="No private rooms" />
                 ) : (
                   privateRooms.map((r) => (
-                    <RoomLink
-                      key={r.id}
-                      room={r}
-                      icon={<Lock className="h-3.5 w-3.5" />}
-                      active={activeRoomId === r.id}
-                    />
+                    <RoomLink key={r.id} room={r} icon={<Lock className="h-3.5 w-3.5" />} active={activeRoomId === r.id} />
                   ))
                 )}
               </RoomGroup>
@@ -131,12 +155,7 @@ export function RightSidebar({ onCreateRoom, onAddFriend, onManageRoom }: RightS
                   <EmptyHint text="No DMs yet" />
                 ) : (
                   dmRooms.map((r) => (
-                    <RoomLink
-                      key={r.id}
-                      room={r}
-                      icon={<MessageSquare className="h-3.5 w-3.5" />}
-                      active={activeRoomId === r.id}
-                    />
+                    <RoomLink key={r.id} room={r} icon={<MessageSquare className="h-3.5 w-3.5" />} active={activeRoomId === r.id} />
                   ))
                 )}
               </RoomGroup>
@@ -146,15 +165,12 @@ export function RightSidebar({ onCreateRoom, onAddFriend, onManageRoom }: RightS
 
         {/* CONTACTS */}
         <Section
-          title="Contacts"
+          title={incomingRequests.length > 0 ? `Contacts (${incomingRequests.length} pending)` : "Contacts"}
           open={contactsOpen}
           onToggle={() => setContactsOpen((v) => !v)}
           action={
             <button
-              onClick={(e) => {
-                e.stopPropagation();
-                onAddFriend();
-              }}
+              onClick={(e) => { e.stopPropagation(); onAddFriend(); }}
               className="rounded p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
               aria-label="Add friend"
             >
@@ -164,11 +180,47 @@ export function RightSidebar({ onCreateRoom, onAddFriend, onManageRoom }: RightS
         >
           {contactsOpen && (
             <div className="space-y-0.5">
-              {friends.length === 0 ? (
+              {/* Pending incoming requests */}
+              {incomingRequests.map((req) => (
+                <div
+                  key={req.id}
+                  className="rounded-md border border-border bg-card/50 px-2 py-2 text-xs"
+                  aria-label={`Friend request from ${req.requester.username}`}
+                >
+                  <div className="mb-1.5 font-medium">{req.requester.username} wants to be friends</div>
+                  <div className="flex gap-1">
+                    <Button
+                      size="sm"
+                      className="h-6 flex-1 px-2 text-[11px]"
+                      onClick={() => respondMutation.mutate({ id: req.id, action: "ACCEPT" })}
+                      disabled={respondMutation.isPending}
+                    >
+                      Accept
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-6 flex-1 px-2 text-[11px]"
+                      onClick={() => respondMutation.mutate({ id: req.id, action: "REJECT" })}
+                      disabled={respondMutation.isPending}
+                    >
+                      Reject
+                    </Button>
+                  </div>
+                </div>
+              ))}
+              {/* Friends list */}
+              {friends.length === 0 && incomingRequests.length === 0 ? (
                 <EmptyHint text="No friends yet. Send a friend request." />
               ) : (
                 friends.map((f) => (
-                  <FriendLink key={f.userId} friend={f} presence={getPresence(f.userId)} />
+                  <FriendLink
+                    key={f.userId}
+                    friend={f}
+                    presence={getPresence(f.userId)}
+                    onRemove={() => removeFriendMutation.mutate(f.userId)}
+                    onBan={() => banFriendMutation.mutate(f.userId)}
+                  />
                 ))
               )}
             </div>
@@ -178,7 +230,7 @@ export function RightSidebar({ onCreateRoom, onAddFriend, onManageRoom }: RightS
         {/* MEMBERS — only when in a room */}
         {inRoom && (
           <div className="border-t border-sidebar-border">
-            <MembersPanel roomId={activeRoomId!} onManage={onManageRoom} />
+            <MembersPanel roomId={activeRoomId!} onManage={onManageRoom} onAddFriend={onAddFriend} />
           </div>
         )}
       </div>
@@ -187,17 +239,9 @@ export function RightSidebar({ onCreateRoom, onAddFriend, onManageRoom }: RightS
 }
 
 function Section({
-  title,
-  open,
-  onToggle,
-  action,
-  children,
+  title, open, onToggle, action, children,
 }: {
-  title: string;
-  open: boolean;
-  onToggle: () => void;
-  action?: React.ReactNode;
-  children: React.ReactNode;
+  title: string; open: boolean; onToggle: () => void; action?: React.ReactNode; children: React.ReactNode;
 }) {
   return (
     <div className="border-b border-sidebar-border px-3 py-3">
@@ -235,9 +279,7 @@ function RoomLink({ room, icon, active }: { room: MyRoomResponse; icon: React.Re
       params={{ id: String(room.id) }}
       className={cn(
         "flex items-center gap-2 rounded px-2 py-1.5 text-sm transition-colors",
-        active
-          ? "bg-primary/15 text-foreground"
-          : "text-muted-foreground hover:bg-accent hover:text-foreground",
+        active ? "bg-primary/15 text-foreground" : "text-muted-foreground hover:bg-accent hover:text-foreground",
       )}
     >
       <span className="text-muted-foreground">{icon}</span>
@@ -251,11 +293,41 @@ function RoomLink({ room, icon, active }: { room: MyRoomResponse; icon: React.Re
   );
 }
 
-function FriendLink({ friend, presence }: { friend: FriendResponse; presence: string }) {
+function FriendLink({
+  friend, presence, onRemove, onBan,
+}: {
+  friend: FriendResponse; presence: string; onRemove: () => void; onBan: () => void;
+}) {
+  const navigate = useNavigate();
   return (
-    <div className="flex items-center gap-2 rounded px-2 py-1.5 text-sm text-muted-foreground">
+    <div
+      className="group flex items-center gap-2 rounded px-2 py-1.5 text-sm text-muted-foreground hover:bg-accent"
+    >
       <PresenceDot status={presence as import("@/lib/types").Presence} />
-      <span className="flex-1 truncate">{friend.username}</span>
+      <span
+        className={cn("flex-1 truncate", friend.dmRoomId && "cursor-pointer hover:text-foreground")}
+        onClick={() => friend.dmRoomId && navigate({ to: "/rooms/$id", params: { id: String(friend.dmRoomId) } })}
+      >
+        {friend.username}
+      </span>
+      <div className="hidden gap-0.5 group-hover:flex">
+        <button
+          onClick={onRemove}
+          className="rounded p-0.5 hover:bg-destructive/20 hover:text-destructive"
+          aria-label={`Remove friend ${friend.username}`}
+          title="Remove friend"
+        >
+          <UserMinus className="h-3.5 w-3.5" />
+        </button>
+        <button
+          onClick={onBan}
+          className="rounded p-0.5 hover:bg-destructive/20 hover:text-destructive"
+          aria-label={`Ban ${friend.username}`}
+          title="Ban user"
+        >
+          <ShieldOff className="h-3.5 w-3.5" />
+        </button>
+      </div>
     </div>
   );
 }

@@ -83,11 +83,11 @@ export function Topbar({ onOpenSessions, onOpenAccount, onOpenFriendRequest, pen
           <DropdownMenuContent align="end" className="w-56">
             <DropdownMenuLabel>{user?.username}</DropdownMenuLabel>
             <DropdownMenuSeparator />
-            <DropdownMenuItem onSelect={onOpenAccount}>
+            <DropdownMenuItem onSelect={onOpenAccount} aria-label="Account settings">
               <UserCircle2 className="mr-2 h-4 w-4" />
               Account settings
             </DropdownMenuItem>
-            <DropdownMenuItem onSelect={onOpenSessions}>
+            <DropdownMenuItem onSelect={onOpenSessions} aria-label="Sessions">
               <Settings className="mr-2 h-4 w-4" />
               Active sessions
             </DropdownMenuItem>

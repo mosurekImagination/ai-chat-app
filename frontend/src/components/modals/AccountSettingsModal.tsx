@@ -1,5 +1,7 @@
 import { useState } from "react";
 import { toast } from "sonner";
+import { useMutation } from "@tanstack/react-query";
+import { useNavigate } from "@tanstack/react-router";
 import {
   Dialog,
   DialogContent,
@@ -11,6 +13,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
+import { authService } from "@/lib/services/authService";
+import { useAuth } from "@/contexts/AuthContext";
 
 interface AccountSettingsModalProps {
   open: boolean;
@@ -18,30 +22,41 @@ interface AccountSettingsModalProps {
 }
 
 export function AccountSettingsModal({ open, onOpenChange }: AccountSettingsModalProps) {
+  const navigate = useNavigate();
+  const { logout } = useAuth();
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [currentPwd, setCurrentPwd] = useState("");
   const [newPwd, setNewPwd] = useState("");
   const [confirmPwd, setConfirmPwd] = useState("");
 
+  const changePwdMutation = useMutation({
+    mutationFn: () => authService.changePassword(currentPwd, newPwd),
+    onSuccess: () => {
+      toast.success("Password updated");
+      setCurrentPwd(""); setNewPwd(""); setConfirmPwd("");
+    },
+    onError: (err: Error) => {
+      if (err.message.includes("WRONG_CURRENT_PASSWORD")) toast.error("Current password is incorrect");
+      else toast.error("Failed to update password");
+    },
+  });
+
+  const deleteAccountMutation = useMutation({
+    mutationFn: () => authService.deleteAccount(),
+    onSuccess: async () => {
+      toast.success("Account deleted");
+      onOpenChange(false);
+      await logout();
+      navigate({ to: "/login" });
+    },
+    onError: () => toast.error("Failed to delete account"),
+  });
+
   const handleUpdatePassword = () => {
-    if (!currentPwd || !newPwd) {
-      toast.error("Missing fields", { description: "Fill in both password fields." });
-      return;
-    }
-    if (newPwd.length < 8) {
-      toast.error("Password too short", { description: "Use at least 8 characters." });
-      return;
-    }
-    if (newPwd !== confirmPwd) {
-      toast.error("Passwords don't match", {
-        description: "Confirmation must match the new password.",
-      });
-      return;
-    }
-    toast.success("Password updated", { description: "Use it next time you sign in." });
-    setCurrentPwd("");
-    setNewPwd("");
-    setConfirmPwd("");
+    if (!currentPwd || !newPwd) { toast.error("Fill in all password fields"); return; }
+    if (newPwd.length < 8) { toast.error("Password must be at least 8 characters"); return; }
+    if (newPwd !== confirmPwd) { toast.error("Passwords don't match"); return; }
+    changePwdMutation.mutate();
   };
 
   return (
@@ -81,7 +96,12 @@ export function AccountSettingsModal({ open, onOpenChange }: AccountSettingsModa
               onChange={(e) => setConfirmPwd(e.target.value)}
             />
           </div>
-          <Button className="w-full" onClick={handleUpdatePassword}>
+          <Button
+            className="w-full"
+            onClick={handleUpdatePassword}
+            disabled={changePwdMutation.isPending}
+            aria-label="Update password"
+          >
             Update password
           </Button>
         </section>
@@ -95,6 +115,7 @@ export function AccountSettingsModal({ open, onOpenChange }: AccountSettingsModa
               variant="destructive"
               className="w-full"
               onClick={() => setConfirmDelete(true)}
+              aria-label="Delete my account"
             >
               Delete my account
             </Button>
@@ -116,13 +137,9 @@ export function AccountSettingsModal({ open, onOpenChange }: AccountSettingsModa
                   variant="destructive"
                   size="sm"
                   className="flex-1"
-                  onClick={() => {
-                    toast.error("Account deleted", {
-                      description: "Your account and data have been removed.",
-                    });
-                    setConfirmDelete(false);
-                    onOpenChange(false);
-                  }}
+                  onClick={() => deleteAccountMutation.mutate()}
+                  disabled={deleteAccountMutation.isPending}
+                  aria-label="Confirm delete account"
                 >
                   Yes, delete
                 </Button>
