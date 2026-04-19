@@ -22,6 +22,7 @@ interface RoomReadCursorRepository : JpaRepository<RoomReadCursor, RoomReadCurso
         SELECT COUNT(*) FROM messages
         WHERE room_id = :roomId
           AND deleted_at IS NULL
+          AND sender_id != :userId
           AND id > COALESCE(
               (SELECT last_read_message_id FROM room_read_cursors
                WHERE room_id = :roomId AND user_id = :userId),

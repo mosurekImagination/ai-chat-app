@@ -28,7 +28,7 @@ interface FriendshipRepository : JpaRepository<Friendship, Long> {
 
     @Query(value = """
         SELECT * FROM friendships
-        WHERE status = 'PENDING' AND (requester_id = :userId OR addressee_id = :userId)
+        WHERE status = 'PENDING' AND addressee_id = :userId
         ORDER BY created_at DESC
     """, nativeQuery = true)
     fun findPendingForUser(@Param("userId") userId: Long): List<Friendship>

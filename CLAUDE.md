@@ -1308,3 +1308,30 @@ await expect(p2.locator(`text=${baseline}`)).toBeVisible(); // reliable
 ```
 
 The `textarea` being enabled is a reliable proxy for the STOMP subscription being active: `MessageInput` stays disabled until `isMember` is true, which requires the initial history load + STOMP connection to complete.
+
+### `headers: {}` Does NOT Remove Default `Content-Type` — FormData Uploads Break
+When `api.ts`'s `request()` function sets `"Content-Type": "application/json"` as a default and an upload caller passes `headers: {}`, the spread `...{}` adds nothing — the JSON header stays. Fetch then sends `Content-Type: application/json` on a multipart body, preventing the browser from appending the required `boundary=…`. Spring cannot parse the parts and returns 500.
+
+```typescript
+// WRONG — headers: {} spreads nothing; "Content-Type: application/json" survives
+async function request<T>(path: string, options?: RequestInit) {
+  return fetch(path, {
+    ...options,
+    headers: { "Content-Type": "application/json", ...options?.headers },
+  });
+}
+// Caller: api.upload sends headers: {} → default header is NOT cleared
+
+// RIGHT — detect FormData and skip the Content-Type header entirely
+async function request<T>(path: string, options?: RequestInit) {
+  const isFormData = options?.body instanceof FormData;
+  return fetch(path, {
+    ...options,
+    headers: isFormData
+      ? { ...options?.headers }
+      : { "Content-Type": "application/json", ...options?.headers },
+  });
+}
+```
+
+The browser auto-sets `Content-Type: multipart/form-data; boundary=…` only when you do NOT set Content-Type manually. Exposed by MT-06 file upload test.

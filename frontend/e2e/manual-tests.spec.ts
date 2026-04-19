@@ -290,3 +290,296 @@ test("MT-01c reset page does not show success message when token is already used
   await expect(page.locator("text=Password updated")).not.toBeVisible({ timeout: 3000 }); // FAILS before fix
   // Should show an error or redirect to login without claiming success
 });
+
+// ─── MT-04: Friend request sender sees their own request ─────────────────────
+//
+// Bug reported: "test2 wants to be friends" shown to user test2 (the sender).
+// Root cause: GET /api/friends/requests returns ALL pending requests where the
+// user is requester OR addressee. Senders should not see their own outgoing
+// requests as incoming requests.
+//
+// Expected: GET /api/friends/requests for the SENDER returns 0 items.
+//           GET /api/friends/requests for the RECIPIENT returns 1 item with
+//           requester.username === sender's username.
+
+test("MT-04 sender does not see their own outgoing request in pending list", async ({ browser }) => {
+  const ctx1 = await browser.newContext();
+  const ctx2 = await browser.newContext();
+
+  try {
+    const p1 = await ctx1.newPage(); // user A — sender
+    const p2 = await ctx2.newPage(); // user B — recipient
+
+    const a = uniqueUser();
+    const b = uniqueUser();
+
+    // Register both users
+    await p1.request.post(`${API}/api/auth/register`, {
+      data: { email: a.email, username: a.username, password: a.password },
+      headers: { "Content-Type": "application/json" },
+    });
+    await p2.request.post(`${API}/api/auth/register`, {
+      data: { email: b.email, username: b.username, password: b.password },
+      headers: { "Content-Type": "application/json" },
+    });
+
+    // A sends a friend request to B
+    const reqResp = await p1.request.post(`${API}/api/friends/requests`, {
+      data: { username: b.username },
+      headers: { "Content-Type": "application/json" },
+    });
+    expect(reqResp.status()).toBe(201);
+
+    // A (the sender) should NOT see any incoming pending requests
+    const aRaw = await p1.request.get(`${API}/api/friends/requests`);
+    const aList = await aRaw.json();
+    expect(aList.length).toBe(0); // FAILS before fix — currently returns 1 (A's own sent request)
+
+    // B (the recipient) should see exactly 1 request from A
+    const bRaw = await p2.request.get(`${API}/api/friends/requests`);
+    const bList = await bRaw.json();
+    expect(bList.length).toBe(1);
+    expect(bList[0].requester.username).toBe(a.username);
+  } finally {
+    await ctx1.close();
+    await ctx2.close();
+  }
+});
+
+// ─── MT-05: Unread badge for own messages ────────────────────────────────────
+//
+// Bug reported: user sees unread badge for messages they sent themselves.
+// Root cause: countUnread SQL counts ALL messages after the cursor, including
+// messages where sender_id = the requesting user.
+//
+// Expected: after sending a message yourself, your unread count for that room
+// is 0, not 1.
+
+test("MT-05 user does not see unread count for their own messages", async ({ page }) => {
+  const u = uniqueUser();
+
+  // Register
+  const regResp = await page.request.post(`${API}/api/auth/register`, {
+    data: { email: u.email, username: u.username, password: u.password },
+    headers: { "Content-Type": "application/json" },
+  });
+  expect(regResp.status()).toBe(201);
+
+  // Get own userId
+  const me = await (await page.request.get(`${API}/api/auth/me`)).json();
+
+  // Create a room
+  const roomResp = await page.request.post(`${API}/api/rooms`, {
+    data: { name: `mt05-${Date.now()}`, visibility: "PUBLIC" },
+    headers: { "Content-Type": "application/json" },
+  });
+  expect(roomResp.status()).toBe(201);
+  const room = await roomResp.json();
+
+  // Load history — sets read cursor to MAX(id) = 0 (no messages yet → COALESCE → 0)
+  await page.request.get(`${API}/api/messages/${room.id}`);
+
+  // Seed 1 message from this user (simulates sending a message)
+  await page.request.post(`${API}/api/dev/seed/rooms/${room.id}/messages?count=1&userId=${me.userId}`, {
+    headers: { "Content-Type": "application/json" },
+  });
+
+  // Check unread count via getMyRooms — own message must NOT count as unread
+  const roomsRaw = await page.request.get(`${API}/api/rooms`);
+  const rooms = await roomsRaw.json();
+  const myRoom = rooms.find((r: { id: number }) => r.id === room.id);
+  expect(myRoom?.unreadCount).toBe(0); // FAILS before fix — currently 1
+});
+
+// ─── MT-06: File upload sends empty message ───────────────────────────────────
+//
+// Bug reported: attaching a file and clicking send sends an empty message with
+// no content and no visible attachment.
+// Root cause: api.ts request() always adds "Content-Type: application/json"
+// header. For FormData uploads this overrides the browser's auto-generated
+// "multipart/form-data; boundary=..." header. The backend receives
+// Content-Type: application/json with a multipart body → 415 → upload fails
+// silently → onUploadFile returns undefined → onSend("", undefined) sends a
+// blank message.
+//
+// Expected: message shows the attachment filename after sending.
+
+test("MT-06 file attachment is visible in sent message after upload", async ({ page }) => {
+  const u = uniqueUser();
+
+  // Register via API (:8080 cookies in page context)
+  await page.request.post(`${API}/api/auth/register`, {
+    data: { email: u.email, username: u.username, password: u.password },
+    headers: { "Content-Type": "application/json" },
+  });
+
+  // Login via UI to get cookies from nginx (:3000)
+  await page.goto("http://localhost:3000/login");
+  await page.fill('input[type="email"]', u.email);
+  await page.fill('input[type="password"]', u.password);
+  await page.click('button[type="submit"]');
+  await page.waitForURL("**/rooms", { timeout: 5000 });
+
+  // Create room via :3000 proxy
+  const roomResp = await page.request.post("http://localhost:3000/api/rooms", {
+    data: { name: `mt06-${Date.now()}`, visibility: "PUBLIC" },
+    headers: { "Content-Type": "application/json" },
+  });
+  const room = await roomResp.json();
+
+  // Navigate to the room
+  await page.goto(`http://localhost:3000/rooms/${room.id}`);
+  await expect(page.locator("textarea")).toBeEnabled({ timeout: 8000 });
+
+  // Track the upload HTTP status
+  let uploadStatus = 0;
+  page.on("response", (resp) => {
+    if (resp.url().includes("/api/files/upload")) uploadStatus = resp.status();
+  });
+
+  // Attach a valid 1×1 PNG using setInputFiles
+  await page.locator('input[aria-label="Attach file input"]').setInputFiles({
+    name: "attachment.png",
+    mimeType: "image/png",
+    buffer: Buffer.from(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+      "base64",
+    ),
+  });
+  await expect(page.locator("text=attachment.png")).toBeVisible({ timeout: 2000 });
+
+  // Click send
+  await page.click('[aria-label="Send"]');
+
+  // Give the upload and STOMP message time to complete
+  await page.waitForTimeout(3000);
+
+  // Upload must have succeeded (201)
+  expect(uploadStatus).toBe(201); // FAILS before fix — 415 (Content-Type: application/json sent for multipart)
+
+  // The sent message must show the attachment (not an empty bubble)
+  const msgWithAttachment = page.locator('[data-message-id]').filter({ hasText: "attachment.png" });
+  await expect(msgWithAttachment).toBeVisible({ timeout: 3000 }); // FAILS before fix — no attachment in message
+});
+
+// ─── MT-07: Reply chain not visible after sending reply ───────────────────────
+//
+// Bug reported: after hovering a message, clicking Reply, and sending a reply,
+// the quoted message chain is not visible in the sent reply.
+// Expected: the reply message shows a quoted preview of the original message.
+
+test("MT-07 reply message shows quoted original message", async ({ browser }) => {
+  const ctx1 = await browser.newContext();
+  const ctx2 = await browser.newContext();
+
+  try {
+    const p1 = await ctx1.newPage(); // user A — will reply
+    const p2 = await ctx2.newPage(); // user B — sends original
+
+    const a = uniqueUser();
+    const b = uniqueUser();
+
+    // Register both
+    await p1.request.post(`${API}/api/auth/register`, {
+      data: { email: a.email, username: a.username, password: a.password },
+      headers: { "Content-Type": "application/json" },
+    });
+    await p2.request.post(`${API}/api/auth/register`, {
+      data: { email: b.email, username: b.username, password: b.password },
+      headers: { "Content-Type": "application/json" },
+    });
+
+    // Login A via UI (to get :3000 cookies)
+    await p1.goto("http://localhost:3000/login");
+    await p1.fill('input[type="email"]', a.email);
+    await p1.fill('input[type="password"]', a.password);
+    await p1.click('button[type="submit"]');
+    await p1.waitForURL("**/rooms", { timeout: 8000 });
+
+    // Login B via UI
+    await p2.goto("http://localhost:3000/login");
+    await p2.fill('input[type="email"]', b.email);
+    await p2.fill('input[type="password"]', b.password);
+    await p2.click('button[type="submit"]');
+    await p2.waitForURL("**/rooms", { timeout: 8000 });
+
+    // Create a room as A, then B joins
+    const roomResp = await p1.request.post("http://localhost:3000/api/rooms", {
+      data: { name: `mt07-${Date.now()}`, visibility: "PUBLIC" },
+      headers: { "Content-Type": "application/json" },
+    });
+    const room = await roomResp.json();
+    await p2.request.post(`http://localhost:3000/api/rooms/${room.id}/join`, {
+      headers: { "Content-Type": "application/json" },
+    });
+
+    // Both navigate to the room
+    await p1.goto(`http://localhost:3000/rooms/${room.id}`);
+    await p2.goto(`http://localhost:3000/rooms/${room.id}`);
+    await expect(p1.locator("textarea")).toBeEnabled({ timeout: 8000 });
+    await expect(p2.locator("textarea")).toBeEnabled({ timeout: 8000 });
+
+    // B sends the original message
+    const originalText = "This is the original message for reply test";
+    await p2.fill("textarea", originalText);
+    await p2.click('[aria-label="Send"]');
+    await expect(p1.locator(`text=${originalText}`)).toBeVisible({ timeout: 5000 });
+
+    // A hovers the message to reveal Reply button, then clicks Reply
+    const msgDiv = p1.locator('[data-message-id]').filter({ hasText: originalText });
+    await msgDiv.hover();
+    await p1.click('[aria-label="Reply"]');
+
+    // Reply preview should appear in the input
+    await expect(p1.locator("text=Replying to")).toBeVisible({ timeout: 2000 });
+
+    // A sends the reply
+    await p1.fill("textarea", "This is A's reply");
+    await p1.click('[aria-label="Send"]');
+
+    // The reply message should show the quoted original message
+    const replyMsg = p1.locator('[data-message-id]').filter({ hasText: "This is A's reply" });
+    await expect(replyMsg).toBeVisible({ timeout: 5000 });
+    // The reply chain border should be visible inside the reply message
+    await expect(replyMsg.locator('.border-l-2')).toBeVisible({ timeout: 3000 }); // FAILS before fix if reply chain missing
+    await expect(replyMsg.locator('.border-l-2')).toContainText(originalText.slice(0, 30));
+  } finally {
+    await ctx1.close();
+    await ctx2.close();
+  }
+});
+
+// ─── MT-09: Registration should not cause 401 errors ─────────────────────────
+//
+// Bug reported: after registering a new account and being redirected to /rooms,
+// the browser logs "Failed to load resource: 401" errors.
+// Expected: all API calls after successful registration return 200/201, not 401.
+
+test("MT-09 no 401 errors occur after successful registration", async ({ page }) => {
+  const u = uniqueUser();
+
+  // Capture any 401 responses that happen AFTER registration
+  const post401s: string[] = [];
+  let registrationSubmitted = false;
+  page.on("response", (resp) => {
+    if (resp.status() === 401 && registrationSubmitted) {
+      post401s.push(resp.url());
+    }
+  });
+
+  // Register via UI form
+  await page.goto("http://localhost:3000/register");
+  await page.fill('input[type="email"]', u.email);
+  await page.fill('input#username', u.username);
+  await page.fill('input[type="password"]', u.password);
+
+  registrationSubmitted = true;
+  await page.click('button[type="submit"]');
+  await page.waitForURL("**/rooms", { timeout: 5000 });
+
+  // Wait for all initial data fetches to complete
+  await page.waitForTimeout(2000);
+
+  // No 401s should have occurred after registration
+  expect(post401s).toHaveLength(0); // FAILS if any API call after register returns 401
+});
