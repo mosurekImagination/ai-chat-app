@@ -1335,3 +1335,23 @@ async function request<T>(path: string, options?: RequestInit) {
 ```
 
 The browser auto-sets `Content-Type: multipart/form-data; boundary=…` only when you do NOT set Content-Type manually. Exposed by MT-06 file upload test.
+
+### Docker Stack E2E: `page.request.post(:8080)` Cookies Don't Apply to the `:3000` UI
+When E2E tests register a user directly against `http://localhost:8080/api/auth/register`, the resulting cookies are scoped to `localhost:8080`. They are NOT sent when the browser navigates to the nginx-fronted UI on `localhost:3000`. For UI-driven tests against the Docker stack, either register AND log in through the UI form on `:3000`, or register via the `:8080` API and then explicitly do the UI login on `:3000` to obtain the `:3000`-scoped cookies:
+
+```typescript
+// API-only test — stays on :8080 the whole time; cookies work fine
+await page.request.post("http://localhost:8080/api/auth/register", { data: {...} });
+await page.request.get("http://localhost:8080/api/rooms"); // works — same origin
+
+// UI test against Docker stack — must get :3000 cookies via UI login
+await page.request.post("http://localhost:8080/api/auth/register", { data: {...} }); // register
+await page.goto("http://localhost:3000/login"); // then log in via UI on :3000
+await page.fill('input[type="email"]', email);
+await page.fill('input[type="password"]', password);
+await page.click('button[type="submit"]');
+await page.waitForURL("**/rooms");
+// Now page.request.post("http://localhost:3000/api/...") works with auth
+```
+
+This is why MT-06/MT-07 register via `:8080` API for speed but then do a full UI login step on `:3000`.

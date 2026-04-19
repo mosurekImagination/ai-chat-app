@@ -75,4 +75,7 @@ test("NF3 large history: scroll 20 pages, no duplicate IDs, ascending order, pag
   for (const timing of pageFetchTimings) {
     expect(timing).toBeLessThan(1000);
   }
+
+  // Allow DB to settle after 10K inserts before subsequent tests run
+  await page.waitForTimeout(2000);
 });

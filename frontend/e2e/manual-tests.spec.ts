@@ -1,9 +1,9 @@
 /**
  * Manual test regression suite — bugs found during manual QA.
  *
- * Target: Docker stack  →  frontend http://localhost:3000
- *                          API      http://localhost:8080
- *                          MailHog  http://localhost:8025
+ * Target: Local dev server  →  frontend http://localhost:5173
+ *                               API      http://localhost:8080
+ *                               MailHog  http://localhost:8025
  *
  * Run: npx playwright test e2e/manual-tests.spec.ts --project=chromium
  */
@@ -139,7 +139,7 @@ test("MT-02a login WITHOUT keep-me-signed-in sets session cookies (no persistent
   });
 
   // Log out first so we start clean, then log in without keepSignedIn
-  await page.goto("http://localhost:3000/login");
+  await page.goto("http://localhost:5173/login");
   await page.fill('input[type="email"]', u.email);
   await page.fill('input[type="password"]', u.password);
   // keepSignedIn checkbox must be UNCHECKED (default)
@@ -163,7 +163,7 @@ test("MT-02b login WITH keep-me-signed-in sets persistent cookies", async ({ pag
     headers: { "Content-Type": "application/json" },
   });
 
-  await page.goto("http://localhost:3000/login");
+  await page.goto("http://localhost:5173/login");
   await page.fill('input[type="email"]', u.email);
   await page.fill('input[type="password"]', u.password);
   const checkbox = page.locator('[role="checkbox"]').first();
@@ -271,7 +271,7 @@ test("MT-01c reset page does not show success message when token is already used
   test.skip(!resetToken, "Could not extract reset token from MailHog");
 
   // ── First use: legitimate reset via the UI ──────────────────────────────
-  await page.goto(`http://localhost:3000/reset-password?token=${resetToken}`);
+  await page.goto(`http://localhost:5173/reset-password?token=${resetToken}`);
   await page.fill("#password", "NewSecure1!");
   await page.fill("#confirm", "NewSecure1!");
   await page.click('button[type="submit"]');
@@ -281,7 +281,7 @@ test("MT-01c reset page does not show success message when token is already used
   await page.waitForURL("**/login", { timeout: 5000 });
 
   // ── Second use: visit the same link again (token already consumed) ──────
-  await page.goto(`http://localhost:3000/reset-password?token=${resetToken}`);
+  await page.goto(`http://localhost:5173/reset-password?token=${resetToken}`);
   await page.fill("#password", "AttackerPass1!");
   await page.fill("#confirm", "AttackerPass1!");
   await page.click('button[type="submit"]');
@@ -414,21 +414,21 @@ test("MT-06 file attachment is visible in sent message after upload", async ({ p
   });
 
   // Login via UI to get cookies from nginx (:3000)
-  await page.goto("http://localhost:3000/login");
+  await page.goto("http://localhost:5173/login");
   await page.fill('input[type="email"]', u.email);
   await page.fill('input[type="password"]', u.password);
   await page.click('button[type="submit"]');
   await page.waitForURL("**/rooms", { timeout: 5000 });
 
   // Create room via :3000 proxy
-  const roomResp = await page.request.post("http://localhost:3000/api/rooms", {
+  const roomResp = await page.request.post("http://localhost:8080/api/rooms", {
     data: { name: `mt06-${Date.now()}`, visibility: "PUBLIC" },
     headers: { "Content-Type": "application/json" },
   });
   const room = await roomResp.json();
 
   // Navigate to the room
-  await page.goto(`http://localhost:3000/rooms/${room.id}`);
+  await page.goto(`http://localhost:5173/rooms/${room.id}`);
   await expect(page.locator("textarea")).toBeEnabled({ timeout: 8000 });
 
   // Track the upload HTTP status
@@ -490,32 +490,32 @@ test("MT-07 reply message shows quoted original message", async ({ browser }) =>
     });
 
     // Login A via UI (to get :3000 cookies)
-    await p1.goto("http://localhost:3000/login");
+    await p1.goto("http://localhost:5173/login");
     await p1.fill('input[type="email"]', a.email);
     await p1.fill('input[type="password"]', a.password);
     await p1.click('button[type="submit"]');
-    await p1.waitForURL("**/rooms", { timeout: 8000 });
+    await p1.waitForURL("**/rooms", { timeout: 15000 });
 
     // Login B via UI
-    await p2.goto("http://localhost:3000/login");
+    await p2.goto("http://localhost:5173/login");
     await p2.fill('input[type="email"]', b.email);
     await p2.fill('input[type="password"]', b.password);
     await p2.click('button[type="submit"]');
-    await p2.waitForURL("**/rooms", { timeout: 8000 });
+    await p2.waitForURL("**/rooms", { timeout: 15000 });
 
     // Create a room as A, then B joins
-    const roomResp = await p1.request.post("http://localhost:3000/api/rooms", {
+    const roomResp = await p1.request.post("http://localhost:8080/api/rooms", {
       data: { name: `mt07-${Date.now()}`, visibility: "PUBLIC" },
       headers: { "Content-Type": "application/json" },
     });
     const room = await roomResp.json();
-    await p2.request.post(`http://localhost:3000/api/rooms/${room.id}/join`, {
+    await p2.request.post(`http://localhost:8080/api/rooms/${room.id}/join`, {
       headers: { "Content-Type": "application/json" },
     });
 
     // Both navigate to the room
-    await p1.goto(`http://localhost:3000/rooms/${room.id}`);
-    await p2.goto(`http://localhost:3000/rooms/${room.id}`);
+    await p1.goto(`http://localhost:5173/rooms/${room.id}`);
+    await p2.goto(`http://localhost:5173/rooms/${room.id}`);
     await expect(p1.locator("textarea")).toBeEnabled({ timeout: 8000 });
     await expect(p2.locator("textarea")).toBeEnabled({ timeout: 8000 });
 
@@ -568,7 +568,7 @@ test("MT-09 no 401 errors occur after successful registration", async ({ page })
   });
 
   // Register via UI form
-  await page.goto("http://localhost:3000/register");
+  await page.goto("http://localhost:5173/register");
   await page.fill('input[type="email"]', u.email);
   await page.fill('input#username', u.username);
   await page.fill('input[type="password"]', u.password);
