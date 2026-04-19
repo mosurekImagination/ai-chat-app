@@ -8,6 +8,7 @@ import com.example.chat.dto.InviteUserRequest
 import com.example.chat.dto.MemberResponse
 import com.example.chat.dto.MyRoomResponse
 import com.example.chat.dto.RoomBanResponse
+import com.example.chat.dto.RoomInvitationResponse
 import com.example.chat.dto.RoomResponse
 import com.example.chat.dto.UpdateMemberRoleRequest
 import com.example.chat.dto.UpdateRoomRequest
@@ -33,6 +34,10 @@ class RoomController(private val roomService: RoomService) {
     @GetMapping("/me")
     fun myRooms(auth: Authentication): List<MyRoomResponse> =
         roomService.getMyRooms(auth.principal<ChatPrincipal>().userId)
+
+    @GetMapping("/invitations")
+    fun myInvitations(auth: Authentication): List<RoomInvitationResponse> =
+        roomService.getMyInvitations(auth.principal<ChatPrincipal>().userId)
 
     @GetMapping("/{id}")
     fun getRoom(@PathVariable id: Long): RoomResponse = roomService.getRoom(id)

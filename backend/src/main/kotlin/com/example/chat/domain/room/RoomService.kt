@@ -146,6 +146,23 @@ class RoomService(
             MyRoomResponse(id = p.getId(), name = p.getName(), visibility = p.getVisibility(), unreadCount = p.getUnreadCount().toInt())
         }
 
+    fun getMyInvitations(userId: Long): List<com.example.chat.dto.RoomInvitationResponse> {
+        val invitations = roomInvitationRepository.findByUserId(userId)
+        val roomIds = invitations.map { it.roomId }.toSet()
+        val inviterIds = invitations.mapNotNull { it.invitedById }.toSet()
+        val roomsById = roomRepository.findAllById(roomIds).associateBy { it.id }
+        val usersById = if (inviterIds.isNotEmpty()) userRepository.findAllById(inviterIds).associateBy { it.id } else emptyMap()
+        return invitations.mapNotNull { inv ->
+            val room = roomsById[inv.roomId] ?: return@mapNotNull null
+            com.example.chat.dto.RoomInvitationResponse(
+                roomId = inv.roomId,
+                roomName = room.name,
+                invitedByUsername = inv.invitedById?.let { usersById[it]?.username },
+                createdAt = inv.createdAt.toString(),
+            )
+        }
+    }
+
     fun listBans(roomId: Long, requestingUserId: Long): List<RoomBanResponse> {
         val room = roomRepository.findById(roomId).orElseThrow { EntityNotFoundException() }
         val member = roomMemberRepository.findByRoomIdAndUserId(roomId, requestingUserId)

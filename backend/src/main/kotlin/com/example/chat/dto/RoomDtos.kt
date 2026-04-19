@@ -56,3 +56,10 @@ data class UpdateMemberRoleRequest(
 data class InviteUserRequest(
     @field:NotBlank val username: String = "",
 )
+
+data class RoomInvitationResponse(
+    val roomId: Long,
+    val roomName: String?,
+    val invitedByUsername: String?,
+    val createdAt: String,
+)

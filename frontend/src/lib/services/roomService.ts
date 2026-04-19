@@ -35,6 +35,13 @@ export interface RoomBanResponse {
   createdAt: string;
 }
 
+export interface RoomInvitationResponse {
+  roomId: number;
+  roomName: string | null;
+  invitedByUsername: string | null;
+  createdAt: string;
+}
+
 export function roomDisplayName(room: Pick<MyRoomResponse, "name" | "visibility" | "otherUsername">): string {
   if (room.name) return room.name;
   if (room.visibility === "DM" && room.otherUsername) return room.otherUsername;
@@ -43,6 +50,8 @@ export function roomDisplayName(room: Pick<MyRoomResponse, "name" | "visibility"
 
 export const roomService = {
   getMyRooms: () => api.get<MyRoomResponse[]>("/api/rooms/me"),
+
+  getMyInvitations: () => api.get<RoomInvitationResponse[]>("/api/rooms/invitations"),
 
   listPublic: (q?: string) => {
     const params = q ? `?q=${encodeURIComponent(q)}` : "";

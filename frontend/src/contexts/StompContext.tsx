@@ -81,7 +81,7 @@ export function StompProvider({ children }: { children: React.ReactNode }) {
             queryClient.invalidateQueries({ queryKey: ["friends"] });
           }
           if (event.type === "INVITE") {
-            queryClient.invalidateQueries({ queryKey: ["myRooms"] });
+            queryClient.invalidateQueries({ queryKey: ["pendingInvitations"] });
           }
         });
       },

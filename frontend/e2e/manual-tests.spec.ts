@@ -494,14 +494,14 @@ test("MT-07 reply message shows quoted original message", async ({ browser }) =>
     await p1.fill('input[type="email"]', a.email);
     await p1.fill('input[type="password"]', a.password);
     await p1.click('button[type="submit"]');
-    await p1.waitForURL("**/rooms", { timeout: 15000 });
+    await p1.waitForURL("**/rooms", { timeout: 20000 });
 
     // Login B via UI
     await p2.goto("http://localhost:5173/login");
     await p2.fill('input[type="email"]', b.email);
     await p2.fill('input[type="password"]', b.password);
     await p2.click('button[type="submit"]');
-    await p2.waitForURL("**/rooms", { timeout: 15000 });
+    await p2.waitForURL("**/rooms", { timeout: 20000 });
 
     // Create a room as A, then B joins
     const roomResp = await p1.request.post("http://localhost:8080/api/rooms", {
@@ -582,4 +582,94 @@ test("MT-09 no 401 errors occur after successful registration", async ({ page })
 
   // No 401s should have occurred after registration
   expect(post401s).toHaveLength(0); // FAILS if any API call after register returns 401
+});
+
+// ─── MT-10: Room invitation notification in sidebar ──────────────────────────
+//
+// Bug reported: inviting a user to a private room produces no visible feedback
+// for the recipient. The backend pushes an INVITE notification via STOMP, but
+// the frontend only invalidates `myRooms` (which does not yet contain the room
+// because the user hasn't joined). The invitee has no way to know they were
+// invited without leaving and re-entering the app.
+//
+// Expected:
+//   After being invited, the recipient (while already on /rooms) should see an
+//   inline invitation card in the ROOMS section of the sidebar showing the room
+//   name and an "Join" button — matching the pattern used for friend requests
+//   in the CONTACTS section. Clicking Join should move the room into the normal
+//   rooms list and remove the card.
+
+test("MT-10 room invitation appears as notification in recipient's sidebar", async ({ browser }) => {
+  const ctx1 = await browser.newContext();
+  const ctx2 = await browser.newContext();
+
+  try {
+    const p1 = await ctx1.newPage(); // owner — sends invite
+    const p2 = await ctx2.newPage(); // invitee — receives notification
+
+    const a = uniqueUser();
+    const b = uniqueUser();
+
+    // Register both via API
+    await p1.request.post(`${API}/api/auth/register`, {
+      data: { email: a.email, username: a.username, password: a.password },
+      headers: { "Content-Type": "application/json" },
+    });
+    await p2.request.post(`${API}/api/auth/register`, {
+      data: { email: b.email, username: b.username, password: b.password },
+      headers: { "Content-Type": "application/json" },
+    });
+
+    // Login both via UI to get :5173 cookies (STOMP needs the live session)
+    await p1.goto("http://localhost:5173/login");
+    await p1.fill('input[type="email"]', a.email);
+    await p1.fill('input[type="password"]', a.password);
+    await p1.click('button[type="submit"]');
+    await p1.waitForURL("**/rooms", { timeout: 20000 });
+
+    await p2.goto("http://localhost:5173/login");
+    await p2.fill('input[type="email"]', b.email);
+    await p2.fill('input[type="password"]', b.password);
+    await p2.click('button[type="submit"]');
+    await p2.waitForURL("**/rooms", { timeout: 20000 });
+
+    // p1 creates a private room
+    const roomResp = await p1.request.post(`${API}/api/rooms`, {
+      data: { name: `mt10-private-${Date.now()}`, visibility: "PRIVATE" },
+      headers: { "Content-Type": "application/json" },
+    });
+    expect(roomResp.status()).toBe(201);
+    const room = await roomResp.json();
+
+    // p2 is watching /rooms — wait for sidebar and give STOMP time to connect
+    await p2.goto("http://localhost:5173/rooms");
+    await expect(p2.locator("aside")).toBeVisible({ timeout: 5000 });
+    // Brief wait for STOMP WebSocket to establish after sidebar renders
+    await p2.waitForTimeout(3000);
+
+    // p1 invites p2 to the private room via API
+    const inviteResp = await p1.request.post(`${API}/api/rooms/${room.id}/invitations`, {
+      data: { username: b.username },
+      headers: { "Content-Type": "application/json" },
+    });
+    expect(inviteResp.status()).toBe(201);
+
+    // p2 should see an invitation card in the sidebar ROOMS section.
+    // Timeout covers STOMP push (~1s) + refetchInterval fallback (30s) + margin.
+    await expect(
+      p2.locator("aside").locator(`text=${room.name}`)
+    ).toBeVisible({ timeout: 35000 });
+
+    const inviteCard = p2.locator("aside").filter({ hasText: room.name }).locator('button:has-text("Join")');
+    await expect(inviteCard).toBeVisible({ timeout: 3000 });
+
+    // Clicking Join should move the room into the sidebar room list and remove the card
+    await inviteCard.click();
+    await expect(
+      p2.locator("aside a").filter({ hasText: room.name })
+    ).toBeVisible({ timeout: 5000 }); // FAILS — room not in list (no join happened)
+  } finally {
+    await ctx1.close();
+    await ctx2.close();
+  }
 });

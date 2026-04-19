@@ -5,4 +5,5 @@ import org.springframework.data.jpa.repository.JpaRepository
 interface RoomInvitationRepository : JpaRepository<RoomInvitation, Long> {
     fun existsByRoomIdAndUserId(roomId: Long, userId: Long): Boolean
     fun deleteByRoomIdAndUserId(roomId: Long, userId: Long)
+    fun findByUserId(userId: Long): List<RoomInvitation>
 }

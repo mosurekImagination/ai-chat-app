@@ -6,7 +6,7 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { roomService, roomDisplayName } from "@/lib/services/roomService";
-import type { MyRoomResponse } from "@/lib/services/roomService";
+import type { MyRoomResponse, RoomInvitationResponse } from "@/lib/services/roomService";
 import { friendService } from "@/lib/services/friendService";
 import type { FriendResponse } from "@/lib/services/friendService";
 import { PresenceDot } from "@/components/common/PresenceDot";
@@ -41,6 +41,20 @@ export function RightSidebar({ onCreateRoom, onAddFriend, onManageRoom }: RightS
   const { data: myRooms = [] } = useQuery({
     queryKey: ["myRooms"],
     queryFn: roomService.getMyRooms,
+  });
+
+  const { data: pendingInvitations = [] } = useQuery<RoomInvitationResponse[]>({
+    queryKey: ["pendingInvitations"],
+    queryFn: roomService.getMyInvitations,
+    refetchInterval: 30_000,
+  });
+
+  const joinInvitedRoomMutation = useMutation({
+    mutationFn: (roomId: number) => roomService.joinRoom(roomId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["myRooms"] });
+      queryClient.invalidateQueries({ queryKey: ["pendingInvitations"] });
+    },
   });
 
   const { data: friends = [] } = useQuery({
@@ -107,7 +121,7 @@ export function RightSidebar({ onCreateRoom, onAddFriend, onManageRoom }: RightS
       <div className="scrollbar-thin flex-1 overflow-y-auto">
         {/* ROOMS */}
         <Section
-          title="Rooms"
+          title={pendingInvitations.length > 0 ? `Rooms (${pendingInvitations.length} invite${pendingInvitations.length > 1 ? "s" : ""})` : "Rooms"}
           open={roomsOpen}
           onToggle={() => setRoomsOpen((v) => !v)}
           action={
@@ -122,6 +136,25 @@ export function RightSidebar({ onCreateRoom, onAddFriend, onManageRoom }: RightS
         >
           {roomsOpen && (
             <div className="space-y-3">
+              {pendingInvitations.map((inv) => (
+                <div
+                  key={inv.roomId}
+                  className="rounded-md border border-border bg-card/50 px-2 py-2 text-xs"
+                >
+                  <div className="mb-1.5 font-medium truncate">{inv.roomName ?? "Private Room"}</div>
+                  {inv.invitedByUsername && (
+                    <div className="mb-1.5 text-muted-foreground truncate">Invited by {inv.invitedByUsername}</div>
+                  )}
+                  <Button
+                    size="sm"
+                    className="h-6 w-full px-2 text-[11px]"
+                    onClick={() => joinInvitedRoomMutation.mutate(inv.roomId)}
+                    disabled={joinInvitedRoomMutation.isPending}
+                  >
+                    Join
+                  </Button>
+                </div>
+              ))}
               <div className="relative">
                 <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
                 <Input
