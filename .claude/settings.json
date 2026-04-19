@@ -31,7 +31,11 @@
       "Bash(which *)",
       "Bash(echo *)",
       "Bash(sleep *)",
-      "Bash(pkill -f *)"
+      "Bash(pkill -f *)",
+      "Bash(node -e *)",
+      "Bash(node *)",
+      "Bash(sed *)"
+
     ]
   },
   "hooks": {

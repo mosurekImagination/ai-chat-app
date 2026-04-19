@@ -1,5 +1,5 @@
 import { Link, useParams } from "@tanstack/react-router";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { ChevronDown, ChevronRight, Hash, Lock, MessageSquare, Plus, Search, UserPlus } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
@@ -7,7 +7,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { roomService, roomDisplayName } from "@/lib/services/roomService";
 import type { MyRoomResponse } from "@/lib/services/roomService";
+import { friendService } from "@/lib/services/friendService";
+import type { FriendResponse } from "@/lib/services/friendService";
 import { PresenceDot } from "@/components/common/PresenceDot";
+import { useStormp } from "@/contexts/StompContext";
 import { MembersPanel } from "./MembersPanel";
 
 interface RightSidebarProps {
@@ -30,11 +33,28 @@ export function RightSidebar({ onCreateRoom, onAddFriend, onManageRoom }: RightS
   }, [inRoom]);
 
   const [roomSearch, setRoomSearch] = useState("");
+  const { getPresence, seedPresence } = useStormp();
+  const seededRef = useRef<Set<number>>(new Set());
 
   const { data: myRooms = [] } = useQuery({
     queryKey: ["myRooms"],
     queryFn: roomService.getMyRooms,
   });
+
+  const { data: friends = [] } = useQuery({
+    queryKey: ["friends"],
+    queryFn: friendService.getFriends,
+  });
+
+  // Seed initial presence from API (overwritten by STOMP events)
+  useEffect(() => {
+    friends.forEach((f) => {
+      if (!seededRef.current.has(f.userId)) {
+        seededRef.current.add(f.userId);
+        seedPresence(f.userId, f.presence);
+      }
+    });
+  }, [friends, seedPresence]);
 
   const q = roomSearch.toLowerCase();
   const filteredRooms = q
@@ -144,7 +164,13 @@ export function RightSidebar({ onCreateRoom, onAddFriend, onManageRoom }: RightS
         >
           {contactsOpen && (
             <div className="space-y-0.5">
-              <EmptyHint text="No friends yet. Send a friend request." />
+              {friends.length === 0 ? (
+                <EmptyHint text="No friends yet. Send a friend request." />
+              ) : (
+                friends.map((f) => (
+                  <FriendLink key={f.userId} friend={f} presence={getPresence(f.userId)} />
+                ))
+              )}
             </div>
           )}
         </Section>
@@ -222,6 +248,15 @@ function RoomLink({ room, icon, active }: { room: MyRoomResponse; icon: React.Re
         </span>
       )}
     </Link>
+  );
+}
+
+function FriendLink({ friend, presence }: { friend: FriendResponse; presence: string }) {
+  return (
+    <div className="flex items-center gap-2 rounded px-2 py-1.5 text-sm text-muted-foreground">
+      <PresenceDot status={presence as import("@/lib/types").Presence} />
+      <span className="flex-1 truncate">{friend.username}</span>
+    </div>
   );
 }
 

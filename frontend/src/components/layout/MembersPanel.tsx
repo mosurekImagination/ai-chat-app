@@ -5,6 +5,7 @@ import { PresenceDot } from "@/components/common/PresenceDot";
 import { Badge } from "@/components/ui/badge";
 import { roomService } from "@/lib/services/roomService";
 import { useAuth } from "@/contexts/AuthContext";
+import { useStormp } from "@/contexts/StompContext";
 
 interface MembersPanelProps {
   roomId: number;
@@ -13,6 +14,7 @@ interface MembersPanelProps {
 
 export function MembersPanel({ roomId, onManage }: MembersPanelProps) {
   const { user } = useAuth();
+  const { getPresence } = useStormp();
 
   const { data: members = [] } = useQuery({
     queryKey: ["members", roomId],
@@ -59,7 +61,7 @@ export function MembersPanel({ roomId, onManage }: MembersPanelProps) {
               key={m.userId}
               className="flex items-center gap-2 rounded px-2 py-1.5 text-sm transition-colors hover:bg-accent"
             >
-              <PresenceDot status="OFFLINE" />
+              <PresenceDot status={getPresence(m.userId)} />
               <span className="flex-1 truncate">{m.username}</span>
               {m.role === "ADMIN" && (
                 <Badge

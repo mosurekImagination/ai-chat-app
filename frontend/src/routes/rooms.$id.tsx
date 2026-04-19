@@ -51,15 +51,17 @@ function ChatPage() {
 
   const [messages, setMessages] = useState<Message[]>([]);
   const [replyingTo, setReplyingTo] = useState<Message | null>(null);
+  const [bannedFromRoom, setBannedFromRoom] = useState(false);
 
-  // Load initial history on mount
+  // Load initial history; read cursor upserted by the API → refresh unread count
   useEffect(() => {
     if (!room) return;
     messageService.getHistory(roomId).then((msgs) => {
       // API returns newest-first; reverse to oldest-first for display
       setMessages([...msgs].reverse());
+      queryClient.invalidateQueries({ queryKey: ["myRooms"] });
     }).catch(() => {});
-  }, [roomId, room]);
+  }, [roomId, room, queryClient]);
 
   // Subscribe to room STOMP topic
   useEffect(() => {
@@ -92,6 +94,17 @@ function ChatPage() {
     });
     return unsubscribe;
   }, [roomId, subscribe, navigate, queryClient]);
+
+  // Handle DM_BANNED notification — disable input for banned user
+  useEffect(() => {
+    const unsubscribe = subscribe("/user/queue/notifications", (frame) => {
+      const event = JSON.parse(frame.body);
+      if (event.type === "DM_BANNED" && event.payload?.roomId === roomId) {
+        setBannedFromRoom(true);
+      }
+    });
+    return unsubscribe;
+  }, [roomId, subscribe]);
 
   const loadOlder = useCallback(async (beforeId: number): Promise<Message[]> => {
     const older = await messageService.getHistory(roomId, { before: beforeId });
@@ -191,11 +204,13 @@ function ChatPage() {
         onCancelReply={() => setReplyingTo(null)}
         onSend={handleSend}
         onUploadFile={handleUploadFile}
-        disabled={!isMember}
+        disabled={!isMember || bannedFromRoom}
         disabledReason={
-          room.visibility === "PUBLIC"
-            ? "Join this room to send messages."
-            : "You are not a member of this room."
+          bannedFromRoom
+            ? "You have been banned from this conversation."
+            : room.visibility === "PUBLIC"
+              ? "Join this room to send messages."
+              : "You are not a member of this room."
         }
       />
     </div>

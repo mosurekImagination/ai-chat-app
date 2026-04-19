@@ -1169,3 +1169,35 @@ export function uniqueUser() {
   return { email: `testuser${id}@example.com`, username: `tu${id}`, password: "TestPass123!" };
 }
 ```
+
+### Presence Map Must Be Seeded From API — STOMP-Only Misses New Friendships
+When two users become friends after both have already connected to STOMP, neither user ever receives a presence STOMP event for the other — the backend only pushes presence on connect/disconnect/AFK, at which time the friendship didn't exist yet. A `getPresence(userId)` that reads from `presenceMap` alone will always return OFFLINE for newly-befriended users. Seed the map from the `/api/friends` response (which includes a `presence` field) as initial state; STOMP events overwrite it when they arrive. Guard against overwriting live STOMP data by only seeding entries that are not yet in the map:
+
+```typescript
+// StompContext — expose seedPresence that only writes if not already set by STOMP
+const seedPresence = (userId: number, status: string) => {
+  setPresenceMap((prev) =>
+    prev[userId] !== undefined ? prev : { ...prev, [userId]: status }
+  );
+};
+
+// RightSidebar — call after friends query loads
+useEffect(() => {
+  friends.forEach((f) => seedPresence(f.userId, f.presence));
+}, [friends]);
+```
+
+This pattern applies to any STOMP-pushed state that has a REST snapshot endpoint — always seed from REST, then let STOMP keep it live.
+
+### Playwright Strict Mode Violation When Locating Unread Badge Inside a Link
+A TanStack Router `<Link>` with an icon span, name span, and optional badge span renders as `<a>` with three `<span>` children. Using `.locator("..").locator("span")` to find the badge resolves to all three spans and throws "strict mode violation: resolved to 3 elements". Target the badge by its specific CSS class instead:
+
+```typescript
+// WRONG — resolves to 3 spans; strict mode violation
+const badge = page.locator("aside").locator(`text=${roomName}`).locator("..").locator("span");
+
+// RIGHT — targets only the destructive-colored badge span
+const badge = page.locator("aside a").filter({ hasText: roomName }).locator(".bg-destructive");
+```
+
+The same principle applies to any locator that targets a generic element type inside a container with multiple siblings of that type — always add a class, role, or attribute filter.
