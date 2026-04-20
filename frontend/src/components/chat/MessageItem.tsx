@@ -117,12 +117,19 @@ export function MessageItem({ message, onReply, onEdit, onDelete, isAdmin = fals
                 {message.attachments.map((a) => {
                   if (a.mimeType.startsWith("image/")) {
                     return (
-                      <div
+                      <a
                         key={a.id}
-                        className="flex h-48 w-full max-w-sm items-center justify-center rounded-md border border-border bg-muted/40 text-xs text-muted-foreground"
+                        href={`/api/files/${a.id}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="block max-w-sm"
                       >
-                        🖼 {a.originalFilename}
-                      </div>
+                        <img
+                          src={`/api/files/${a.id}`}
+                          alt={a.originalFilename}
+                          className="max-h-72 rounded-md border border-border object-contain"
+                        />
+                      </a>
                     );
                   }
                   return (
