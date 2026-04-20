@@ -192,6 +192,27 @@ Or run all at once: `npx playwright test e2e/`. Never commit if any prior slice'
 
 > **Note:** `./gradlew` requires the Gradle wrapper to be initialized. In Slice 1 (project scaffold), run `gradle wrapper` first to generate the `gradlew` script before any other Gradle commands.
 
+## Screenshot Tooling (Acceptance Criteria)
+
+`frontend/capture-extra.cjs` is a Playwright script that takes screenshots of every major feature. It doubles as an **acceptance test** — it exercises real UI flows end-to-end against the running Docker stack, so running it confirms the features work, not just that the code compiles.
+
+### When to run
+Run it against the Docker stack (`docker compose up -d`) whenever a UI feature changes or you want to regenerate the screenshots:
+
+```bash
+cd frontend
+node capture-extra.cjs
+```
+
+All screenshots are saved to `screenshots/` and referenced in `README.md`.
+
+### Design rules for the script
+- **UI-only interactions** — no direct API calls (`page.request.post(...)`) for setup. Every action must go through the browser UI so the script validates the frontend flow, not just the backend.
+- **Unread badges require a page reload** — the sidebar fetches unread counts from `/api/rooms/me` on mount. After a second user sends messages, the observer must reload (`page.reload()`) to refetch; the sidebar does not update live for rooms you are not currently subscribed to.
+- **Catalog join navigates into the room** — clicking "Join" in the public catalog navigates the browser to `/rooms/{id}`, which calls the message history endpoint and sets the read cursor. To show unread badges for a user: (1) join via catalog (cursor set), (2) navigate away to `/rooms`, (3) have another user send messages, (4) reload — the new messages since the last cursor appear as unread.
+- **Sidebar room links are only in the DOM when expanded** — when inside a room (`/rooms/{id}`), the ROOMS accordion is collapsed and `aside a` links are not rendered. Navigate to `/rooms` (empty shell) first, then click the room link in the expanded sidebar.
+- **STOMP re-renders after `goto('/rooms/catalog')`** — wait for `networkidle` + an extra 1 s before interacting with the catalog search input; the STOMP connection setup causes a brief re-render that detaches the input between `waitFor()` and `fill()` if you act too quickly.
+
 ## Testing Conventions
 
 - All backend tests: `@SpringBootTest(webEnvironment = RANDOM_PORT)` + Testcontainers
