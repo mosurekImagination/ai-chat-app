@@ -396,6 +396,29 @@ ai-chat-app/
 
 ---
 
+## Screenshots
+
+![Login form](screenshots/01-login.png)
+*Sign-in form with "Keep me signed in" option*
+
+![Registration form](screenshots/02-register.png)
+*Account creation with email, username, and password*
+
+![Public room catalog](screenshots/03-catalog.png)
+*Public room catalog with search and live member counts*
+
+![Chat room](screenshots/04-chat.png)
+*Real-time two-user conversation in a public room*
+
+![Room management modal](screenshots/05-manage-modal.png)
+*Room management: Members tab with Make Admin / Ban actions*
+
+![Direct message](screenshots/06-dm.png)
+*Direct message conversation with ONLINE presence indicator*
+
+![Sidebar with presence](screenshots/07-sidebar-presence.png)
+*Full app view: sidebar rooms, contacts with presence dots, and member panel*
+
 ## Screens
 
 | Route | Screen |
