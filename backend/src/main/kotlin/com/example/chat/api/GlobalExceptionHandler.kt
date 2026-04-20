@@ -10,9 +10,11 @@ import com.example.chat.domain.exception.UnsupportedMimeTypeException
 import com.example.chat.domain.exception.ValidationException
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
+import org.springframework.web.HttpRequestMethodNotSupportedException
 import org.springframework.web.bind.MethodArgumentNotValidException
 import org.springframework.web.bind.annotation.ExceptionHandler
 import org.springframework.web.bind.annotation.RestControllerAdvice
+import org.springframework.web.servlet.resource.NoResourceFoundException
 
 @RestControllerAdvice
 class GlobalExceptionHandler {
@@ -56,6 +58,14 @@ class GlobalExceptionHandler {
     @ExceptionHandler(org.springframework.web.multipart.MaxUploadSizeExceededException::class)
     fun handleMultipartSize(e: org.springframework.web.multipart.MaxUploadSizeExceededException): ResponseEntity<Map<String, String>> =
         ResponseEntity.status(HttpStatus.PAYLOAD_TOO_LARGE).body(mapOf("error" to "FILE_TOO_LARGE"))
+
+    @ExceptionHandler(HttpRequestMethodNotSupportedException::class)
+    fun handleMethodNotAllowed(e: HttpRequestMethodNotSupportedException): ResponseEntity<Map<String, String>> =
+        ResponseEntity.status(HttpStatus.METHOD_NOT_ALLOWED).body(mapOf("error" to "METHOD_NOT_ALLOWED"))
+
+    @ExceptionHandler(NoResourceFoundException::class)
+    fun handleNoResource(e: NoResourceFoundException): ResponseEntity<Map<String, String>> =
+        ResponseEntity.status(HttpStatus.NOT_FOUND).body(mapOf("error" to "NOT_FOUND"))
 
     @ExceptionHandler(Exception::class)
     fun handleGeneral(e: Exception): ResponseEntity<Map<String, String>> =

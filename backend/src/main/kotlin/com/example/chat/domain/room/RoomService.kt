@@ -52,8 +52,10 @@ class RoomService(
     fun listPublicRooms(q: String?): List<RoomResponse> =
         roomRepository.findPublicRoomsWithCount(q ?: "").map { toResponse(it) }
 
-    fun getRoom(roomId: Long): RoomResponse {
+    fun getRoom(roomId: Long, userId: Long): RoomResponse {
         val row = roomRepository.findByIdWithCount(roomId).firstOrNull() ?: throw EntityNotFoundException()
+        if (row.getVisibility() == "PRIVATE" && !roomMemberRepository.existsByRoomIdAndUserId(roomId, userId))
+            throw ForbiddenException("NOT_MEMBER")
         return toResponse(row)
     }
 

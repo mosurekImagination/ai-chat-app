@@ -40,7 +40,8 @@ class RoomController(private val roomService: RoomService) {
         roomService.getMyInvitations(auth.principal<ChatPrincipal>().userId)
 
     @GetMapping("/{id}")
-    fun getRoom(@PathVariable id: Long): RoomResponse = roomService.getRoom(id)
+    fun getRoom(@PathVariable id: Long, auth: Authentication): RoomResponse =
+        roomService.getRoom(id, auth.principal<ChatPrincipal>().userId)
 
     @PostMapping("/{id}/join")
     @ResponseStatus(HttpStatus.CREATED)
