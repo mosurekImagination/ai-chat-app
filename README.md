@@ -2,6 +2,58 @@
 
 A full-stack, production-ready chat application with real-time messaging, presence tracking, file sharing, friend system, and moderation tools.
 
+## Screenshots
+
+![Login form](screenshots/01-login.png)
+*Sign-in form with "Keep me signed in" option*
+
+![Registration form](screenshots/02-register.png)
+*Account creation with email, username, and password*
+
+![Public room catalog](screenshots/03-catalog.png)
+*Public room catalog with search and live member counts*
+
+![Chat room](screenshots/04-chat.png)
+*Real-time two-user conversation in a public room*
+
+![Room management modal](screenshots/05-manage-modal.png)
+*Room management: Members tab with Make Admin / Ban actions*
+
+![Direct message](screenshots/06-dm.png)
+*Direct message conversation with ONLINE presence indicator*
+
+![Sidebar with presence](screenshots/07-sidebar-presence.png)
+*Full app view: sidebar rooms, contacts with presence dots, and member panel*
+
+![File attachment](screenshots/08-file-attachment.png)
+*File/image upload — attached to a message and rendered inline*
+
+![Reply / quote](screenshots/09-reply-quote.png)
+*Replying to a message with the quoted parent visible above the compose box*
+
+![Unread badges](screenshots/10-unread-badges.png)
+*Sidebar showing red unread-count badges on rooms with new messages*
+
+![Message action buttons](screenshots/11-message-actions.png)
+*Hover over a message to reveal Reply, Edit, and Delete actions*
+
+![Deleted message](screenshots/12-deleted-message.png)
+*Soft-deleted message shows a placeholder, preserving reply-thread structure*
+
+![Session management](screenshots/13-sessions.png)
+*Active session list — view and revoke individual browser sessions*
+
+![Friend request](screenshots/14-friend-request.png)
+*Incoming friend request with Accept / Reject buttons in the contacts panel*
+
+![Room settings](screenshots/15-room-settings.png)
+*Room management Settings tab — rename, description, visibility toggle*
+
+![Ban list](screenshots/16-ban-list.png)
+*Banned tab showing a banned member with "Banned by" info and Unban button*
+
+---
+
 ## Quick Start
 
 ```bash
@@ -395,29 +447,6 @@ ai-chat-app/
 ```
 
 ---
-
-## Screenshots
-
-![Login form](screenshots/01-login.png)
-*Sign-in form with "Keep me signed in" option*
-
-![Registration form](screenshots/02-register.png)
-*Account creation with email, username, and password*
-
-![Public room catalog](screenshots/03-catalog.png)
-*Public room catalog with search and live member counts*
-
-![Chat room](screenshots/04-chat.png)
-*Real-time two-user conversation in a public room*
-
-![Room management modal](screenshots/05-manage-modal.png)
-*Room management: Members tab with Make Admin / Ban actions*
-
-![Direct message](screenshots/06-dm.png)
-*Direct message conversation with ONLINE presence indicator*
-
-![Sidebar with presence](screenshots/07-sidebar-presence.png)
-*Full app view: sidebar rooms, contacts with presence dots, and member panel*
 
 ## Screens
 
